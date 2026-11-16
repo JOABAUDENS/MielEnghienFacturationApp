@@ -8,9 +8,16 @@ import { formatEuro, toCents } from '../money.js';
 import * as db from '../db.js';
 import { pastilleStock } from './stock.js';
 
+/** Prix appliqué selon le canal : prix revendeur en magasin (s'il est renseigné), prix public sinon. */
+function prixDe(p) {
+  const magasin = p.prix_magasin_cents;
+  const aPrixMagasin = magasin !== null && magasin !== undefined && magasin !== '';
+  return etat.config.canal === 'magasin' && aPrixMagasin ? Number(magasin) : p.prix_cents;
+}
+
 function calcul() {
   return calculerPanier({
-    produits: etat.produits,
+    produits: etat.produits.map((p) => ({ ...p, prix_cents: prixDe(p) })),
     quantites: etat.panier.quantites,
     consignes: etat.panier.consignes,
     consigneCents: etat.config.consigne_cents,
@@ -25,7 +32,7 @@ function ligneProduit(p) {
     <div class="ligne ${q ? 'choisie' : ''}">
       <div class="ligne-info">
         <div class="ligne-nom">${esc(p.nom_fr)} ${p.lot ? `<span class="lot">${esc(p.lot)}</span>` : ''}</div>
-        <div class="ligne-prix">${formatEuro(p.prix_cents)}${p.format ? ` · ${esc(p.format)}` : ''}</div>
+        <div class="ligne-prix">${formatEuro(prixDe(p))}${prixDe(p) !== p.prix_cents ? ' (prix magasin)' : ''}${p.format ? ` · ${esc(p.format)}` : ''}</div>
       </div>
       ${pastilleStock(p, q)}
       <div class="quantite">
@@ -267,6 +274,7 @@ export function rendre(el) {
       const maj = { [e.target.id]: e.target.value.trim() };
       Object.assign(etat.config, maj);
       await db.ecrireConfig(maj);
+      if (e.target.id === 'canal') rafraichir(); // les prix dépendent du canal (magasin)
     }
   };
 }

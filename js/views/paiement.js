@@ -1,4 +1,5 @@
-// Écran de paiement : choix du mode, QR de virement avec plan B, liquide avec rendu.
+// Écran de paiement : choix du mode, QR de virement avec plan B, liquide avec rendu,
+// livraison magasin sur facture, offert. La partie montrée au client existe en FR et en NL.
 /* global qrcode */
 import { etat, esc, rafraichir, toast, panierVide } from '../etat.js';
 import { buildEpcPayload, ibanValide, formaterIban, nettoyer } from '../epc.js';
@@ -7,6 +8,30 @@ import { formatEuro, toCents, centsToInput } from '../money.js';
 import * as db from '../db.js';
 import * as sync from '../sync.js';
 import { rechargerClients } from '../chargement.js';
+
+/** Textes vus par le client sur l'écran du QR. Les boutons du vendeur restent en français. */
+const TEXTES = {
+  fr: {
+    scanner: 'Scannez avec votre application bancaire',
+    aide: 'Ça ne marche pas ?',
+    masquer: 'Masquer les coordonnées',
+    beneficiaire: 'Bénéficiaire',
+    montant: 'Montant',
+    communication: 'Communication',
+    copier: 'Copier',
+    copie: 'Copié',
+  },
+  nl: {
+    scanner: 'Scan met uw bankapp',
+    aide: 'Lukt het niet?',
+    masquer: 'Gegevens verbergen',
+    beneficiaire: 'Begunstigde',
+    montant: 'Bedrag',
+    communication: 'Mededeling',
+    copier: 'Kopiëren',
+    copie: 'Gekopieerd',
+  },
+};
 
 let verrouEcran = null;
 
@@ -21,6 +46,10 @@ function relacherEcran() {
 
 function communication() {
   return nettoyer(`MIEL ENGHIEN ${etat.paiement.numero}`, 140);
+}
+
+function clientDuPanier() {
+  return etat.clients.find((c) => c.id === etat.panier.client_id) || null;
 }
 
 /** Dessine le QR sur un canvas : modules noirs sur blanc pur, marge de 4 modules. */
@@ -43,12 +72,19 @@ function dessinerQr(canvas, texte) {
   }
 }
 
+/**
+ * Enregistre la vente.
+ * - qr, liquide : vente payée
+ * - facture_smart : livraison magasin, en attente de facturation, stock décompté
+ * - offert : total ramené à zéro, stock décompté comme un don
+ */
 async function valider(mode) {
   const { calcul, numero } = etat.paiement;
   const date = db.maintenant();
   const venteId = crypto.randomUUID();
-  const client = etat.clients.find((c) => c.id === etat.panier.client_id) || null;
+  const client = clientDuPanier();
   const ticketEmail = etat.panier.ticket && client?.email ? client.email : '';
+  const offert = mode === 'offert';
   const vente = {
     id: venteId,
     numero,
@@ -58,26 +94,23 @@ async function valider(mode) {
     client_id: client?.id || null,
     mode_paiement: mode,
     sous_total_cents: calcul.sousTotalCents,
-    remise_cents: calcul.remiseCents,
-    remise_libelle: calcul.remiseLibelle,
-    total_cents: calcul.totalCents,
-    statut: 'payee',
-    langue: client?.langue === 'nl' ? 'nl' : 'fr',
+    remise_cents: offert ? calcul.sousTotalCents : calcul.remiseCents,
+    remise_libelle: offert ? 'Offert' : calcul.remiseLibelle,
+    total_cents: offert ? 0 : calcul.totalCents,
+    statut: mode === 'facture_smart' ? 'en_attente' : 'payee',
+    langue: etat.paiement.langue === 'nl' ? 'nl' : 'fr',
     ticket_email: ticketEmail,
     ticket_envoye_le: '',
+    smart_saisi_le: '',
+    annulee_le: '',
+    motif_annulation: '',
     note: '',
     lignes: calcul.lignes.map((l) => ({ id: crypto.randomUUID(), vente_id: venteId, ...l })),
     updated_at: date,
     device_id: etat.config.device_id,
   };
-  const mouvements = mouvementsDeVente(calcul.lignes).map((m) => ({
-    id: crypto.randomUUID(),
-    date_heure: date,
-    vente_id: venteId,
-    note: '',
-    device_id: etat.config.device_id,
-    ...m,
-  }));
+  const motif = offert ? 'don' : mode === 'facture_smart' ? 'livraison_magasin' : 'vente';
+  const mouvements = mouvementsDeVente(calcul.lignes, motif).map((m) => db.nouveauMouvement({ ...m, vente_id: venteId }));
   const compteur = (etat.config.compteur_ticket || 0) + 1;
   try {
     await db.enregistrerVente(vente, mouvements, compteur);
@@ -93,7 +126,8 @@ async function valider(mode) {
   etat.panier = panierVide();
   etat.paiement = null;
   relacherEcran();
-  toast(`Vente ${numero} enregistrée · ${formatEuro(vente.total_cents)}${ticketEmail ? ' · ticket en cours d\'envoi' : ''}`);
+  const quoi = mode === 'facture_smart' ? 'Livraison' : 'Vente';
+  toast(`${quoi} ${numero} enregistrée · ${formatEuro(vente.total_cents)}${ticketEmail ? ' · ticket en cours d\'envoi' : ''}`);
   rafraichir();
 }
 
@@ -109,10 +143,15 @@ function ecranChoix(total) {
       <p class="montant-geant">${formatEuro(0)}</p>
       <button class="btn-principal large" data-action="payer" data-mode="liquide">✅ Valider</button>`;
   }
+  const magasin = etat.config.canal === 'magasin';
   return `
     <p class="montant-geant">${formatEuro(total)}</p>
-    <button class="btn-principal large" data-action="etape" data-etape="qr">📱 QR virement</button>
-    <button class="btn-liquide large" data-action="etape" data-etape="liquide">💵 Liquide</button>`;
+    ${magasin ? `
+      <button class="btn-principal large" data-action="payer" data-mode="facture_smart">🧾 Livraison sur facture Smart</button>
+      <p class="aide centre">Le stock est décompté ; la livraison apparaît dans « à facturer » de l'historique.</p>` : ''}
+    <button class="${magasin ? 'btn-secondaire' : 'btn-principal'} large" data-action="etape" data-etape="qr">📱 QR virement</button>
+    <button class="${magasin ? 'btn-secondaire' : 'btn-liquide'} large" data-action="etape" data-etape="liquide">💵 Liquide</button>
+    <button class="btn-discret" data-action="offrir">🎁 Offrir (don, total à 0 €)</button>`;
 }
 
 function ecranQr(total) {
@@ -123,24 +162,25 @@ function ecranQr(total) {
       <button class="btn-principal large" data-action="reglages">Ouvrir les Réglages</button>
       <button class="btn-liquide large" data-action="etape" data-etape="liquide">💵 Payer en liquide</button>`;
   }
+  const t = TEXTES[etat.paiement.langue];
   const planB = etat.paiement.planB;
   const champ = (titre, valeur, aCopier = valeur) => `
     <div class="planb-champ">
       <div><div class="planb-titre">${titre}</div><div class="planb-valeur">${esc(valeur)}</div></div>
-      <button class="btn-secondaire" data-action="copier" data-texte="${esc(aCopier)}">Copier</button>
+      <button class="btn-secondaire" data-action="copier" data-texte="${esc(aCopier)}">${t.copier}</button>
     </div>`;
   return `
     <p class="montant-geant">${formatEuro(total)}</p>
     <div class="qr-cadre"><canvas id="qr" aria-label="QR code de virement"></canvas></div>
-    <p class="centre">Scannez avec votre application bancaire<br><strong>${esc(beneficiaire)}</strong></p>
-    <button class="btn-discret" data-action="planb">${planB ? 'Masquer les coordonnées' : 'Ça ne marche pas ?'}</button>
+    <p class="centre">${t.scanner}<br><strong>${esc(beneficiaire)}</strong></p>
+    <button class="btn-discret" data-action="planb">${planB ? t.masquer : t.aide}</button>
     ${planB ? `
       <div class="planb">
-        ${champ('Bénéficiaire', beneficiaire)}
+        ${champ(t.beneficiaire, beneficiaire)}
         ${champ('IBAN', formaterIban(iban), iban)}
         ${bic ? champ('BIC', bic) : ''}
-        ${champ('Montant', formatEuro(total), centsToInput(total))}
-        ${champ('Communication', communication())}
+        ${champ(t.montant, formatEuro(total), centsToInput(total))}
+        ${champ(t.communication, communication())}
       </div>` : ''}
     <button class="btn-principal large" data-action="payer" data-mode="qr">✅ Payé par virement</button>
     <button class="btn-liquide large" data-action="etape" data-etape="liquide">💵 Finalement en liquide</button>`;
@@ -158,7 +198,9 @@ function ecranLiquide(total) {
 }
 
 export function rendre(el) {
-  const { calcul, numero, etape } = etat.paiement;
+  // Langue de l'écran client : celle de la fiche du client, modifiable d'un appui.
+  etat.paiement.langue ??= clientDuPanier()?.langue === 'nl' ? 'nl' : 'fr';
+  const { calcul, numero, etape, langue } = etat.paiement;
   const total = calcul.totalCents;
   const corps = etape === 'qr' ? ecranQr(total) : etape === 'liquide' ? ecranLiquide(total) : ecranChoix(total);
 
@@ -167,6 +209,7 @@ export function rendre(el) {
       <div class="paiement-entete">
         <button class="btn-discret" data-action="retour">← ${etape === 'choix' ? 'Panier' : 'Retour'}</button>
         <span class="numero">Ticket ${esc(numero)}</span>
+        <button class="btn-secondaire langue" data-action="langue" title="Langue de l'écran client et du ticket">${langue === 'nl' ? 'NL' : 'FR'}</button>
       </div>
       ${corps}
       <details class="recap">
@@ -207,12 +250,19 @@ export function rendre(el) {
       etat.paiement.etape = bouton.dataset.etape;
     } else if (action === 'planb') {
       etat.paiement.planB = !etat.paiement.planB;
+    } else if (action === 'langue') {
+      etat.paiement.langue = langue === 'nl' ? 'fr' : 'nl';
     } else if (action === 'reglages') {
       etat.paiement = null;
       etat.onglet = 'reglages';
     } else if (action === 'copier') {
-      try { await navigator.clipboard.writeText(bouton.dataset.texte); toast('Copié'); }
+      try { await navigator.clipboard.writeText(bouton.dataset.texte); toast(TEXTES[langue].copie); }
       catch { toast('Copie impossible', 'erreur'); }
+      return;
+    } else if (action === 'offrir') {
+      if (!confirm(`Offrir ces articles ?\n\nLa vente sera enregistrée à 0 € et le stock décompté comme un don.`)) return;
+      bouton.disabled = true;
+      await valider('offert');
       return;
     } else if (action === 'payer') {
       bouton.disabled = true; // évite le double enregistrement

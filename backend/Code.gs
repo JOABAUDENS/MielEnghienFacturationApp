@@ -19,7 +19,7 @@ const TABLES = {
     'consigne', 'date_recolte', 'actif', 'archive', 'ordre', 'seuil_alerte', 'updated_at', 'device_id', 'synced_at'],
   Ventes: ['id', 'numero', 'date_heure', 'canal', 'lieu', 'client_id', 'mode_paiement', 'sous_total_cents',
     'remise_cents', 'remise_libelle', 'total_cents', 'statut', 'langue', 'note', 'updated_at', 'device_id', 'synced_at',
-    'ticket_email', 'ticket_envoye_le'],
+    'ticket_email', 'ticket_envoye_le', 'smart_saisi_le', 'annulee_le', 'motif_annulation'],
   LignesVente: ['id', 'vente_id', 'produit_id', 'libelle', 'lot', 'quantite', 'prix_unitaire_cents',
     'total_cents', 'device_id', 'synced_at'],
   MouvementsStock: ['id', 'date_heure', 'produit_id', 'delta', 'motif', 'vente_id', 'note', 'device_id', 'synced_at'],
@@ -191,7 +191,8 @@ function traiter(requete) {
         if (nom === 'Ventes') {
           // Un ticket déjà envoyé le reste, même si le téléphone ne le sait pas encore.
           if (existe && !valeurs[iEnvoye]) valeurs[iEnvoye] = donnees[index[id]][iEnvoye];
-          if (row.ticket_email && row.ticket_html && !valeurs[iEnvoye]) {
+          // ticket_forcer : renvoi demandé explicitement depuis l'historique.
+          if (row.ticket_email && row.ticket_html && (!valeurs[iEnvoye] || row.ticket_forcer === true)) {
             try {
               envoyerTicket(row);
               valeurs[iEnvoye] = instant;

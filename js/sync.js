@@ -84,14 +84,17 @@ async function appliquer(reponse) {
 function joindreTickets(ops) {
   const nomsNl = Object.fromEntries(etat.produits.filter((p) => p.nom_nl).map((p) => [p.id, p.nom_nl]));
   for (const op of ops) {
-    if (op.table !== 'Ventes' || !op.row.ticket_email || op.row.ticket_envoye_le) continue;
+    const renvoi = op.row.ticket_a_renvoyer === true;
+    delete op.row.ticket_a_renvoyer;
+    if (op.table !== 'Ventes' || !op.row.ticket_email || (op.row.ticket_envoye_le && !renvoi)) continue;
     const lignes = ops.filter((o) => o.table === 'LignesVente' && o.row.vente_id === op.row.id).map((o) => o.row);
     const ticket = construireTicket({ ...op.row, lignes }, etat.config, nomsNl);
-    Object.assign(op.row, { ticket_sujet: ticket.sujet, ticket_texte: ticket.texte, ticket_html: ticket.html });
+    Object.assign(op.row, { ticket_sujet: ticket.sujet, ticket_texte: ticket.texte, ticket_html: ticket.html, ticket_forcer: renvoi });
   }
 }
 
 let enCours = null;
+let aRelancer = false;
 let minuterieReessai = null;
 let delaiReessai = REESSAI_MIN_MS;
 
@@ -137,7 +140,7 @@ async function executer(complet) {
  */
 export function synchroniser({ complet = false } = {}) {
   if (!configuree()) return Promise.resolve(false);
-  if (enCours) return enCours;
+  if (enCours) { aRelancer = true; return enCours; }
   clearTimeout(minuterieReessai);
   statut.enCours = true;
   notifier();
@@ -159,6 +162,11 @@ export function synchroniser({ complet = false } = {}) {
       enCours = null;
       statut.enCours = false;
       await actualiserCompteur().catch(() => {});
+      // Une écriture est arrivée pendant l'envoi (vente, ticket…) : on repart tout de suite.
+      if (aRelancer) {
+        aRelancer = false;
+        if (!statut.erreur) synchroniser();
+      }
     });
   return enCours;
 }

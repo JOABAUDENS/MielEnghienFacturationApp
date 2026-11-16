@@ -4,13 +4,13 @@ import * as db from './db.js';
 import * as sync from './sync.js';
 import * as vente from './views/vente.js';
 import * as paiement from './views/paiement.js';
-import * as ventes from './views/ventes.js';
+import * as historique from './views/historique.js';
 import * as stock from './views/stock.js';
 import * as clients from './views/clients.js';
 import * as reglages from './views/reglages.js';
 import { rechargerClients } from './chargement.js';
 
-const ONGLETS = { vente, ventes, stock, clients, reglages };
+const ONGLETS = { vente, historique, stock, clients, reglages };
 const vue = document.getElementById('vue');
 const nav = document.getElementById('onglets');
 

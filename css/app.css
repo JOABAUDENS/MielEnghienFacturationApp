@@ -180,6 +180,15 @@ textarea:focus, input:focus, select:focus, button:focus-visible { outline: 3px s
 .recap .ligne { border: 0; padding: 8px 0; margin: 0; border-top: 1px solid var(--fond); border-radius: 0; }
 
 /* ---------- Divers ---------- */
+.paiement-entete .langue { min-height: 40px; padding: 0 12px; }
+.recap.annulee summary { text-decoration: line-through; color: #78716c; }
+.recap .barre, .recap .ligne-saisie, .recap .btn-danger { margin-bottom: 10px; }
+.groupe { background: var(--carte); border: 1px solid var(--bord); border-radius: 12px; padding: 4px 12px 8px; margin-bottom: 8px; }
+.groupe .case { display: flex; align-items: center; gap: 10px; min-height: 48px; }
+.groupe .case input { width: 24px; height: 24px; accent-color: var(--miel); }
+.groupe-titre { flex: 1; font-weight: 600; }
+.groupe details summary { min-height: 40px; display: flex; align-items: center; color: var(--miel-fonce); cursor: pointer; }
+
 .tuiles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .tuile { background: var(--carte); border: 1px solid var(--bord); border-radius: 12px; padding: 12px; text-align: center; font-size: 0.85rem; color: var(--texte-doux); }
 .tuile-valeur { font-size: 1.4rem; font-weight: 800; color: var(--texte); }

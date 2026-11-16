@@ -1,11 +1,11 @@
 // État en mémoire partagé par les écrans, et petits utilitaires d'interface.
 
 /** À incrémenter en même temps que VERSION dans sw.js à chaque publication. */
-export const VERSION_APP = '1.3.0';
+export const VERSION_APP = '1.4.0';
 
 export const CATEGORIES = { miel: 'Miel', hydromel: 'Hydromel', autre: 'Autres' };
-export const CANAUX = { marche: 'Marché', domicile: 'Domicile', autre: 'Autre' };
-export const MODES = { qr: 'QR virement', liquide: 'Liquide' };
+export const CANAUX = { marche: 'Marché', domicile: 'Domicile', magasin: 'Magasin', autre: 'Autre' };
+export const MODES = { qr: 'QR virement', liquide: 'Liquide', facture_smart: 'Facture Smart', offert: 'Offert' };
 
 /** Libellés des motifs de mouvement de stock. */
 export const MOTIFS = {

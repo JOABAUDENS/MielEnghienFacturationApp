@@ -87,17 +87,23 @@ export function calculerPanier({ produits, quantites, consignes = 0, consigneCen
 
 /**
  * Mouvements de stock générés par une vente validée.
+ * @param {string} [motif] 'vente', 'livraison_magasin' ou 'don'
  * @returns {Array<{produit_id:string, delta:number, motif:string}>}
  */
-export function mouvementsDeVente(lignes) {
+export function mouvementsDeVente(lignes, motif = 'vente') {
   const mouvements = [];
   for (const l of lignes) {
     if (l.produit_id === 'DIVERS') continue;
     if (l.produit_id === 'RETOUR_CONSIGNE') {
       mouvements.push({ produit_id: 'POTS_VIDES', delta: l.quantite, motif: 'retour_consigne' });
     } else {
-      mouvements.push({ produit_id: l.produit_id, delta: -l.quantite, motif: 'vente' });
+      mouvements.push({ produit_id: l.produit_id, delta: -l.quantite, motif });
     }
   }
   return mouvements;
+}
+
+/** Mouvements inverses, pour l'annulation d'une vente : le stock revient à l'identique. */
+export function mouvementsAnnulation(lignes) {
+  return mouvementsDeVente(lignes).map((m) => ({ produit_id: m.produit_id, delta: -m.delta, motif: 'annulation_vente' }));
 }

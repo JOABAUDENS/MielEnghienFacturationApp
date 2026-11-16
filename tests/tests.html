@@ -22,6 +22,8 @@
     import { calculerStocks, niveauStock, ecartInventaire } from '../js/stock.js';
     import { normaliser, emailValide, rechercher, trouverDoublons, statsClients, distance } from '../js/clients.js';
     import { construireTicket } from '../js/ticket.js';
+    import { mouvementsAnnulation } from '../js/panier.js';
+    import { encaissements, livraisonsAFacturer, regrouper, versCsv, versTexte, clePeriode } from '../js/journal.js';
 
     const resultats = [];
     function test(nom, f) {
@@ -228,6 +230,59 @@
     test('ticket : sans vendeur ni pied, pas de ligne vide en trop', () => {
       const t = construireTicket(venteTicket, {});
       egal(t.texte.includes('Vendeur'), false); egal(/\n\n\n/.test(t.texte), false);
+    });
+
+    test('annulation : mouvements exactement inverses de la vente', () => {
+      const c = calculerPanier({ produits, quantites: { a: 2 }, consignes: 1 });
+      egal(mouvementsAnnulation(c.lignes), [
+        { produit_id: 'a', delta: 2, motif: 'annulation_vente' },
+        { produit_id: 'POTS_VIDES', delta: -1, motif: 'annulation_vente' },
+      ]);
+      const s = calculerStocks([
+        { produit_id: 'a', delta: 10, motif: 'recolte' },
+        ...mouvementsDeVente(c.lignes), ...mouvementsAnnulation(c.lignes),
+      ]);
+      egal(s.a.quantite, 10); egal(s.POTS_VIDES.quantite, 0);
+    });
+    test('livraison magasin et don : motif du mouvement', () => {
+      const c = calculerPanier({ produits, quantites: { a: 3 } });
+      egal(mouvementsDeVente(c.lignes, 'livraison_magasin')[0], { produit_id: 'a', delta: -3, motif: 'livraison_magasin' });
+      egal(mouvementsDeVente(c.lignes, 'don')[0].motif, 'don');
+    });
+
+    // Dates à midi heure locale pour ne pas dépendre du fuseau.
+    const le = (j, m = 10) => new Date(2026, m, j, 12, 0).toISOString();
+    const journal = [
+      { id: 'v1', date_heure: le(14), canal: 'marche', mode_paiement: 'qr', statut: 'payee', total_cents: 2000, lignes: [{ libelle: 'Miel', lot: 'M02', quantite: 2 }] },
+      { id: 'v2', date_heure: le(14), canal: 'domicile', mode_paiement: 'liquide', statut: 'payee', total_cents: 1000, lignes: [{ libelle: 'Miel', lot: 'M02', quantite: 1 }] },
+      { id: 'v3', date_heure: le(15), canal: 'marche', mode_paiement: 'liquide', statut: 'payee', total_cents: 1500, lignes: [{ libelle: 'Hydromel', lot: '', quantite: 1 }] },
+      { id: 'v4', date_heure: le(15), canal: 'marche', mode_paiement: 'liquide', statut: 'annulee', total_cents: 9900, lignes: [] },
+      { id: 'v5', date_heure: le(15), canal: 'magasin', mode_paiement: 'facture_smart', statut: 'en_attente', total_cents: 8000, lignes: [] },
+      { id: 'v6', date_heure: le(15), canal: 'marche', mode_paiement: 'offert', statut: 'payee', total_cents: 0, lignes: [] },
+      { id: 'v7', date_heure: le(3, 9), canal: 'marche', mode_paiement: 'qr', statut: 'payee', total_cents: 500, lignes: [] },
+    ];
+    test('journal Smart : seuls les encaissements QR et liquide hors magasin', () => {
+      egal(encaissements(journal).map((v) => v.id), ['v1', 'v2', 'v3', 'v7']);
+      egal(livraisonsAFacturer(journal).map((v) => v.id), ['v5']);
+    });
+    test('journal Smart : regroupement par jour', () => {
+      const g = regrouper(encaissements(journal), 'jour');
+      egal(g.map((x) => [x.cle, x.nb, x.total_cents]), [['2026-11-15', 1, 1500], ['2026-11-14', 2, 3000], ['2026-10-03', 1, 500]]);
+      egal(g[1].parMode, { qr: 2000, liquide: 1000 });
+      egal(g[1].parProduit, { 'Miel M02': 3 });
+      egal(g[1].ids, ['v1', 'v2']);
+    });
+    test('journal Smart : regroupement par mois', () => {
+      const g = regrouper(encaissements(journal), 'mois');
+      egal(g.map((x) => [x.cle, x.nb, x.total_cents]), [['2026-11', 3, 4500], ['2026-10', 1, 500]]);
+      egal(clePeriode(le(3, 9), 'mois'), '2026-10');
+    });
+    test('journal Smart : export texte et CSV', () => {
+      const g = regrouper(encaissements(journal), 'mois');
+      const csv = versCsv(g).split('\r\n');
+      egal(csv[0], '"periode";"nb_ventes";"total";"virement";"liquide";"detail"');
+      egal(csv[1], '"2026-11";"3";"45,00";"20,00";"25,00";"3 × Miel M02, 1 × Hydromel"');
+      egal(versTexte(g).includes('3 vente(s) — 45,00 €'), true);
     });
 
     const echecs = resultats.filter((r) => !r.ok).length;

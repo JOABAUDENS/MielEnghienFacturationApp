@@ -469,7 +469,29 @@ export async function marquerTickets(tickets) {
   const ventes = tx.objectStore('ventes');
   for (const t of tickets) {
     const v = await attendre(ventes.get(t.vente_id));
-    if (v) ventes.put({ ...v, ticket_envoye_le: t.envoye_le });
+    if (v) ventes.put({ ...v, ticket_envoye_le: t.envoye_le, ticket_a_renvoyer: false });
+  }
+  await finTransaction(tx);
+}
+
+// ---------------------------------------------------------------------------
+// Modification de ventes existantes (annulation, mode de paiement, client, Smart)
+// ---------------------------------------------------------------------------
+
+/**
+ * Enregistre des ventes modifiées et, le cas échéant, les mouvements de stock qui vont avec
+ * (annulation), dans une seule transaction. Les lignes d'une vente ne changent jamais.
+ */
+export async function modifierVentes(ventes, mouvements = []) {
+  const db = await ouvrir();
+  const tx = db.transaction(['ventes', 'mouvements', 'outbox'], 'readwrite');
+  for (const v of ventes) {
+    tx.objectStore('ventes').put({ ...v, updated_at: maintenant(), device_id: idAppareil });
+    tx.objectStore('outbox').put(entreeOutbox('Ventes', v.id));
+  }
+  for (const m of mouvements) {
+    tx.objectStore('mouvements').put(m);
+    tx.objectStore('outbox').put(entreeOutbox('MouvementsStock', m.id));
   }
   await finTransaction(tx);
 }

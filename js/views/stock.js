@@ -254,6 +254,7 @@ function formulaire(el) {
       <label>Lot <input name="lot" type="text" value="${esc(p.lot)}" placeholder="M07" autocapitalize="characters"></label>
       <label>Format <input name="format" type="text" value="${esc(p.format)}" placeholder="500 g"></label>
       <label>Prix (€) <input name="prix" type="text" inputmode="decimal" required value="${centsToInput(p.prix_cents)}"></label>
+      <label>Prix magasin (€, facultatif) <input name="prix_magasin" type="text" inputmode="decimal" value="${p.prix_magasin_cents === null || p.prix_magasin_cents === undefined || p.prix_magasin_cents === '' ? '' : centsToInput(Number(p.prix_magasin_cents))}" placeholder="prix revendeur"></label>
       <label>Alerte de stock bas à (facultatif) <input name="seuil" type="text" inputmode="numeric" value="${p.seuil_alerte ?? ''}" placeholder="5"></label>
       <label class="case"><input name="consigne" type="checkbox" ${p.consigne ? 'checked' : ''}> Pot consigné</label>
       ${lot ? `
@@ -294,6 +295,9 @@ function formulaire(el) {
     const f = new FormData(e.target);
     const prix = toCents(f.get('prix'));
     if (prix === null || prix < 0) { toast('Prix invalide', 'erreur'); return; }
+    const magasinSaisi = String(f.get('prix_magasin')).trim();
+    const prixMagasin = magasinSaisi === '' ? null : toCents(magasinSaisi);
+    if (magasinSaisi !== '' && (prixMagasin === null || prixMagasin < 0)) { toast('Prix magasin invalide', 'erreur'); return; }
     const seuilSaisi = String(f.get('seuil')).trim();
     const seuil = seuilSaisi === '' ? null : entier(seuilSaisi);
     if (seuilSaisi !== '' && (seuil === null || seuil < 0)) { toast("Seuil d'alerte invalide", 'erreur'); return; }
@@ -305,6 +309,7 @@ function formulaire(el) {
       lot: f.get('lot').trim().toUpperCase(),
       format: f.get('format').trim(),
       prix_cents: prix,
+      prix_magasin_cents: prixMagasin,
       seuil_alerte: seuil,
       consigne: f.get('consigne') === 'on',
     };

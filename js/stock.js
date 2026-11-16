@@ -5,7 +5,7 @@
 export const POTS_VIDES = 'POTS_VIDES';
 
 /** Mouvements qui ne prouvent pas qu'un stock a été saisi (ils viennent des ventes). */
-const MOTIFS_DE_VENTE = ['vente', 'annulation_vente'];
+const MOTIFS_DE_VENTE = ['vente', 'annulation_vente', 'livraison_magasin'];
 
 /**
  * @param {Array<{produit_id: string, delta: number, motif: string}>} mouvements
