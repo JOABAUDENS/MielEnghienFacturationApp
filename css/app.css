@@ -86,6 +86,15 @@ body.en-paiement main { padding-bottom: 24px; }
 .ligne-prix { font-size: 0.88rem; color: var(--texte-doux); }
 .lot { display: inline-block; background: var(--fond); border: 1px solid var(--bord); border-radius: 6px; padding: 0 6px; font-size: 0.78rem; font-weight: 700; vertical-align: 1px; }
 
+.stock {
+  flex: 0 0 auto; min-width: 40px; padding: 4px 8px; border-radius: 8px; text-align: center;
+  font-weight: 800; font-variant-numeric: tabular-nums; background: #dcfce7; color: #166534;
+}
+.stock.bas { background: #ffedd5; color: #9a3412; }
+.stock.rupture { background: #fee2e2; color: var(--rouge); }
+.stock.inconnu { background: #f5f5f4; color: #78716c; }
+button.lien { background: none; border: 0; padding: 0; text-align: left; min-height: 48px; }
+
 .quantite { display: flex; align-items: center; gap: 6px; }
 .btn-qte {
   width: 48px; height: 48px; border-radius: 50%; border: 0;

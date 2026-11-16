@@ -2,6 +2,8 @@
 // Magasins : produits, ventes, mouvements (journal de stock, ajout seul), config (clé/valeur),
 // outbox (file d'attente des écritures à envoyer au Google Sheet).
 
+import { calculerStocks } from './stock.js';
+
 const NOM_BASE = 'miel-enghien';
 const VERSION = 2;
 
@@ -188,6 +190,42 @@ export async function ventesEntre(debutIso, finIso) {
   return liste.reverse();
 }
 
+/** Stock de chaque produit (et des pots vides), recalculé depuis le journal de mouvements. */
+export async function stocks() {
+  return calculerStocks(await tout('mouvements'));
+}
+
+/** Journal des mouvements d'un produit, du plus récent au plus ancien. */
+export async function mouvementsDe(produitId) {
+  const db = await ouvrir();
+  const index = db.transaction('mouvements').objectStore('mouvements').index('produit_id');
+  const liste = await attendre(index.getAll(produitId));
+  return liste.sort((a, b) => String(b.date_heure).localeCompare(String(a.date_heure)));
+}
+
+/** Construit un mouvement de stock complet à partir de l'essentiel. */
+export function nouveauMouvement({ produit_id, delta, motif, note = '', vente_id = '' }) {
+  return { id: crypto.randomUUID(), date_heure: maintenant(), produit_id, delta, motif, vente_id, note, device_id: idAppareil };
+}
+
+/**
+ * Enregistre des mouvements de stock et, s'il est fourni, le produit qui va avec (nouveau lot),
+ * dans une seule transaction.
+ */
+export async function enregistrerMouvements(mouvements, produit = null) {
+  const db = await ouvrir();
+  const tx = db.transaction(['produits', 'mouvements', 'outbox'], 'readwrite');
+  if (produit) {
+    tx.objectStore('produits').put({ ...produit, initial: false, updated_at: maintenant(), device_id: idAppareil });
+    tx.objectStore('outbox').put(entreeOutbox('Produits', produit.id));
+  }
+  for (const m of mouvements) {
+    tx.objectStore('mouvements').put(m);
+    tx.objectStore('outbox').put(entreeOutbox('MouvementsStock', m.id));
+  }
+  await finTransaction(tx);
+}
+
 /** Nombre de ventes enregistrées sur l'appareil. */
 export async function nombreVentes() {
   const db = await ouvrir();
@@ -195,20 +233,28 @@ export async function nombreVentes() {
 }
 
 /**
- * Efface toutes les ventes et tous les mouvements de stock de CET appareil (y compris ceux
- * qui attendaient d'être envoyés), et remet le compteur de tickets à zéro. Le catalogue, les
- * réglages et le Google Sheet ne sont pas touchés. Irréversible.
+ * Efface toutes les ventes de CET appareil et les mouvements de stock qu'elles ont générés
+ * (y compris ceux qui attendaient d'être envoyés), et remet le compteur de tickets à zéro.
+ * Les entrées de stock, inventaires, le catalogue, les réglages et le Google Sheet ne sont
+ * pas touchés. Irréversible.
  */
 export async function effacerVentes() {
   const db = await ouvrir();
   const tx = db.transaction(['ventes', 'mouvements', 'config', 'outbox'], 'readwrite');
-  tx.objectStore('ventes').clear();
-  tx.objectStore('mouvements').clear();
-  tx.objectStore('config').put({ cle: 'compteur_ticket', valeur: 0 });
   const outbox = tx.objectStore('outbox');
-  outbox.getAll().onsuccess = (e) => {
-    for (const entree of e.target.result) if (entree.table !== 'Produits') outbox.delete(entree.cle);
+  const mouvements = tx.objectStore('mouvements');
+  tx.objectStore('ventes').getAllKeys().onsuccess = (e) => {
+    for (const id of e.target.result) outbox.delete(`Ventes:${id}`);
+    tx.objectStore('ventes').clear();
   };
+  mouvements.getAll().onsuccess = (e) => {
+    for (const m of e.target.result) {
+      if (!m.vente_id) continue; // entrée de stock, inventaire… : conservé
+      mouvements.delete(m.id);
+      outbox.delete(`MouvementsStock:${m.id}`);
+    }
+  };
+  tx.objectStore('config').put({ cle: 'compteur_ticket', valeur: 0 });
   await finTransaction(tx);
 }
 

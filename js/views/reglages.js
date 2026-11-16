@@ -43,7 +43,7 @@ export async function rendre(el) {
     <button class="btn-secondaire large" data-action="exporter">Exporter une sauvegarde (JSON)</button>
 
     <h2>Réinitialiser</h2>
-    <p class="aide">Efface toutes les ventes de ce téléphone (${nbVentes} enregistrée(s)) et remet la numérotation des tickets à zéro. Le catalogue et les réglages sont conservés.${syncOk ? ' Le Google Sheet n\'est pas modifié.' : ''}</p>
+    <p class="aide">Efface toutes les ventes de ce téléphone (${nbVentes} enregistrée(s)) et remet la numérotation des tickets à zéro. Le catalogue, les entrées de stock et les réglages sont conservés.${syncOk ? ' Le Google Sheet n\'est pas modifié.' : ''}</p>
     <button class="btn-danger" data-action="reinitialiser" ${nbVentes ? '' : 'disabled'}>Effacer toutes les ventes</button>
 
     <p class="aide">
@@ -93,6 +93,7 @@ export async function rendre(el) {
       if (!confirm(message)) return;
       await db.effacerVentes();
       etat.config.compteur_ticket = 0;
+      etat.stocks = await db.stocks();
       await sync.actualiserCompteur();
       toast('Ventes effacées');
       rafraichir();

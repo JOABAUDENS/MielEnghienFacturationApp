@@ -1,11 +1,26 @@
 // État en mémoire partagé par les écrans, et petits utilitaires d'interface.
 
 /** À incrémenter en même temps que VERSION dans sw.js à chaque publication. */
-export const VERSION_APP = '1.1.0';
+export const VERSION_APP = '1.2.0';
 
 export const CATEGORIES = { miel: 'Miel', hydromel: 'Hydromel', autre: 'Autres' };
 export const CANAUX = { marche: 'Marché', domicile: 'Domicile', autre: 'Autre' };
 export const MODES = { qr: 'QR virement', liquide: 'Liquide' };
+
+/** Libellés des motifs de mouvement de stock. */
+export const MOTIFS = {
+  recolte: 'Entrée de stock',
+  vente: 'Vente',
+  annulation_vente: 'Vente annulée',
+  livraison_magasin: 'Livraison magasin',
+  don: 'Don',
+  casse: 'Casse',
+  perso: 'Consommation perso',
+  retour_consigne: 'Retour de consigne',
+  achat_pots: 'Achat de pots',
+  mise_en_pot: 'Mise en pot',
+  inventaire: 'Inventaire',
+};
 
 export function panierVide() {
   return { quantites: {}, consignes: 0, divers: [], remise: '' };
@@ -14,11 +29,13 @@ export function panierVide() {
 export const etat = {
   config: {},
   produits: [],
+  /** produit_id -> { quantite, initialise } ; recalculé après chaque mouvement */
+  stocks: {},
   panier: panierVide(),
   onglet: 'vente',
   /** Paiement en cours (null = pas de paiement) : { calcul, numero, etape } */
   paiement: null,
-  /** Produit en cours d'édition dans le catalogue (null = liste) */
+  /** Sous-écran de l'onglet Stock (null = liste) : { mode: 'detail'|'produit'|'lot', … } */
   edition: null,
 };
 

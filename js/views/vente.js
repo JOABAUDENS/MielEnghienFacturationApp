@@ -3,6 +3,7 @@ import { etat, esc, rafraichir, toast, prochainNumero, CATEGORIES, CANAUX } from
 import { calculerPanier } from '../panier.js';
 import { formatEuro, toCents } from '../money.js';
 import * as db from '../db.js';
+import { pastilleStock } from './stock.js';
 
 function calcul() {
   return calculerPanier({
@@ -23,6 +24,7 @@ function ligneProduit(p) {
         <div class="ligne-nom">${esc(p.nom_fr)} ${p.lot ? `<span class="lot">${esc(p.lot)}</span>` : ''}</div>
         <div class="ligne-prix">${formatEuro(p.prix_cents)}${p.format ? ` · ${esc(p.format)}` : ''}</div>
       </div>
+      ${pastilleStock(p, q)}
       <div class="quantite">
         <button class="btn-qte" data-action="moins" data-id="${p.id}" aria-label="Retirer">−</button>
         <span class="qte">${q}</span>
@@ -59,7 +61,7 @@ export function rendre(el) {
       <input id="lieu" type="text" placeholder="Lieu (ex. Marché d'Enghien)" value="${esc(etat.config.lieu)}" aria-label="Lieu">
     </div>
 
-    ${groupes || `<p class="vide">Aucun produit actif. Active des produits dans l'onglet Catalogue.</p>`}
+    ${groupes || `<p class="vide">Aucun produit actif. Active des produits dans l'onglet Stock.</p>`}
 
     <h2>Autres</h2>
     <div class="ligne ${etat.panier.consignes ? 'choisie' : ''}">

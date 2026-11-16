@@ -82,6 +82,7 @@ async function valider(mode) {
     return;
   }
   etat.config.compteur_ticket = compteur;
+  etat.stocks = await db.stocks();
   sync.apresEcriture(); // envoi en arrière-plan : on n'attend jamais le réseau
   etat.panier = panierVide();
   etat.paiement = null;

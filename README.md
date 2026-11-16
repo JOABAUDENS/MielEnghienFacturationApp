@@ -4,7 +4,7 @@ Application web installable (PWA) pour encaisser les ventes de miel : panier, QR
 SEPA, paiement en liquide, catalogue. Fonctionne hors ligne. La spécification complète
 (`SPECIFICATION.md`) est conservée en local, hors du dépôt.
 
-État : **lots 1 et 2** (voir §14 de la spécification). Les ventes sont enregistrées sur le
+État : **lots 1 à 3** (voir §14 de la spécification). Les ventes sont enregistrées sur le
 téléphone puis envoyées à un Google Sheet dès qu'il y a du réseau. Mise en place de la
 synchronisation : [docs/DEPLOIEMENT.md](docs/DEPLOIEMENT.md).
 
@@ -40,6 +40,7 @@ doit aussi être ajouté à la liste `FICHIERS` de `sw.js`.
 | `js/epc.js` | Payload du QR de virement (norme EPC069-12) |
 | `js/money.js` | Montants en centimes entiers |
 | `js/panier.js` | Calcul du panier, remise, mouvements de stock |
+| `js/stock.js` | Calcul du stock depuis le journal de mouvements |
 | `js/db.js` | Stockage local IndexedDB et file d'attente de synchro |
 | `js/sync.js` | Envoi et réception avec le Google Sheet |
 | `backend/Code.gs` | Script Google Apps Script à coller dans le Sheet |

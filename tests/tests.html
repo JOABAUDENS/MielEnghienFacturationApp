@@ -19,6 +19,7 @@
     import { toCents, formatEuro, centsToEpc, centsToInput } from '../js/money.js';
     import { buildEpcPayload, ibanValide, nettoyer, formaterIban } from '../js/epc.js';
     import { calculerPanier, parseRemise, mouvementsDeVente } from '../js/panier.js';
+    import { calculerStocks, niveauStock, ecartInventaire } from '../js/stock.js';
 
     const resultats = [];
     function test(nom, f) {
@@ -114,6 +115,40 @@
         { produit_id: 'a', delta: -2, motif: 'vente' },
         { produit_id: 'POTS_VIDES', delta: 1, motif: 'retour_consigne' },
       ]);
+    });
+
+    test('stock : somme des mouvements', () => {
+      const s = calculerStocks([
+        { produit_id: 'a', delta: 40, motif: 'recolte' },
+        { produit_id: 'a', delta: -2, motif: 'vente' },
+        { produit_id: 'a', delta: -1, motif: 'casse' },
+        { produit_id: 'b', delta: -3, motif: 'vente' },
+        { produit_id: 'POTS_VIDES', delta: 1, motif: 'retour_consigne' },
+      ]);
+      egal(s.a, { quantite: 37, initialise: true });
+      egal(s.b, { quantite: -3, initialise: false });
+      egal(s.POTS_VIDES, { quantite: 1, initialise: true });
+    });
+    test('stock : une vente annulée rétablit le stock', () => {
+      const s = calculerStocks([
+        { produit_id: 'a', delta: 10, motif: 'recolte' },
+        { produit_id: 'a', delta: -2, motif: 'vente' },
+        { produit_id: 'a', delta: 2, motif: 'annulation_vente' },
+      ]);
+      egal(s.a.quantite, 10);
+    });
+    test('stock : niveaux alerte', () => {
+      egal(niveauStock(undefined, 5), 'inconnu');
+      egal(niveauStock({ quantite: -3, initialise: false }, 5), 'inconnu');
+      egal(niveauStock({ quantite: 0, initialise: true }, 5), 'rupture');
+      egal(niveauStock({ quantite: 4, initialise: true }, 5), 'bas');
+      egal(niveauStock({ quantite: 5, initialise: true }, 5), 'bas');
+      egal(niveauStock({ quantite: 6, initialise: true }, 5), 'ok');
+      egal(niveauStock({ quantite: 6, initialise: true }, null), 'ok');
+      egal(niveauStock({ quantite: 2, initialise: true }, null, 3), 'rupture');
+    });
+    test('stock : inventaire — théorique 12, compté 10 donne un écart de −2', () => {
+      egal(ecartInventaire(10, 12), -2); egal(ecartInventaire(5, -3), 8); egal(ecartInventaire(7, 7), 0);
     });
 
     const echecs = resultats.filter((r) => !r.ok).length;

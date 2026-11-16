@@ -68,8 +68,9 @@ async function appliquer(reponse) {
     if (max > (etat.config.compteur_ticket || 0)) await memoriser({ compteur_ticket: max });
   }
   if (bilan.produits) etat.produits = await db.produits();
+  if (bilan.mouvements) etat.stocks = await db.stocks();
   // On ne redessine pas pendant un paiement ou une saisie de produit.
-  if ((bilan.produits || bilan.ventes) && !etat.paiement && !etat.edition && etat.onglet !== 'reglages') rafraichir();
+  if ((bilan.produits || bilan.ventes || bilan.mouvements) && !etat.paiement && !etat.edition && etat.onglet !== 'reglages') rafraichir();
   return bilan;
 }
 
@@ -87,6 +88,7 @@ async function executer(complet) {
     if ((reponse.changes?.Produits || []).length) await db.supprimerProduitsInitiaux();
     await appliquer(reponse);
     etat.produits = await db.produits();
+    etat.stocks = await db.stocks();
     await memoriser({ sync_initialisee: true });
   }
 
