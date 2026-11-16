@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tests — Miel d'Enghien</title>
+  <style>
+    body { font-family: system-ui, sans-serif; padding: 16px; }
+    .ok { color: #15803d; } .ko { color: #b91c1c; font-weight: 700; }
+    #bilan { font-size: 1.3rem; font-weight: 700; }
+  </style>
+</head>
+<body>
+  <h1>Tests des modules de calcul</h1>
+  <p id="bilan">…</p>
+  <ul id="resultats"></ul>
+  <script type="module">
+    // Ouvrir cette page via le serveur local (pas en file://) : http://localhost:8765/tests/tests.html
+    import { toCents, formatEuro, centsToEpc, centsToInput } from '../js/money.js';
+    import { buildEpcPayload, ibanValide, nettoyer, formaterIban } from '../js/epc.js';
+    import { calculerPanier, parseRemise, mouvementsDeVente } from '../js/panier.js';
+
+    const resultats = [];
+    function test(nom, f) {
+      try { f(); resultats.push({ nom, ok: true }); }
+      catch (e) { resultats.push({ nom, ok: false, detail: e.message }); }
+    }
+    function egal(obtenu, attendu) {
+      const a = JSON.stringify(obtenu), b = JSON.stringify(attendu);
+      if (a !== b) throw new Error(`obtenu ${a}, attendu ${b}`);
+    }
+    function leve(f) {
+      try { f(); } catch { return; }
+      throw new Error('une erreur était attendue');
+    }
+
+    // IBAN d'exemple public (documentation ISO), pas un vrai compte.
+    const IBAN = 'BE68 5390 0754 7034';
+
+    test('toCents : formats courants', () => {
+      egal(toCents('12,50'), 1250); egal(toCents('12.5'), 1250); egal(toCents('10'), 1000);
+      egal(toCents('-0,50'), -50); egal(toCents('10 €'), 1000); egal(toCents('0,07'), 7);
+    });
+    test('toCents : saisies invalides', () => {
+      egal(toCents('abc'), null); egal(toCents(''), null); egal(toCents('1,234'), null);
+    });
+    test('formatEuro et centsToInput', () => {
+      egal(formatEuro(1250), '12,50 €'); egal(formatEuro(-50), '-0,50 €'); egal(centsToInput(5), '0,05');
+    });
+    test('centsToEpc : point décimal', () => { egal(centsToEpc(1250), '12.50'); egal(centsToEpc(5), '0.05'); });
+
+    test('IBAN : validation modulo 97', () => {
+      egal(ibanValide(IBAN), true);
+      egal(ibanValide('BE68 5390 0754 7035'), false);
+      egal(ibanValide(''), false);
+      egal(formaterIban('be68539007547034'), 'BE68 5390 0754 7034');
+    });
+    test('nettoyer : accents et caractères spéciaux', () => {
+      egal(nettoyer('Été à Marcq & Cie', 70), 'Ete a Marcq Cie');
+      egal(nettoyer('abcdef', 3), 'abc');
+    });
+
+    test('EPC : structure exacte du payload', () => {
+      const p = buildEpcPayload({ bic: 'gkccbebb', nom: 'Camille Dupont', iban: IBAN, montantCents: 2000, communication: 'MIEL ENGHIEN J26-0042' });
+      egal(p.split('\n'), ['BCD', '002', '1', 'SCT', 'GKCCBEBB', 'Camille Dupont', 'BE68539007547034', 'EUR20.00', '', '', 'MIEL ENGHIEN J26-0042']);
+    });
+    test('EPC : non-régression — ligne 10 (structurée) vide, libellé en ligne 11', () => {
+      const lignes = buildEpcPayload({ nom: 'X', iban: IBAN, montantCents: 100, communication: 'TEST' }).split('\n');
+      egal(lignes[9], ''); egal(lignes[10], 'TEST'); egal(lignes.length, 11);
+    });
+    test('EPC : sans communication, lignes vides finales omises', () => {
+      const lignes = buildEpcPayload({ nom: 'X', iban: IBAN, montantCents: 100 }).split('\n');
+      egal(lignes.length, 8); egal(lignes[7], 'EUR1.00');
+    });
+    test('EPC : bénéficiaire sans accents', () => {
+      egal(buildEpcPayload({ nom: 'Hélène Lefèvre', iban: IBAN, montantCents: 100 }).split('\n')[5], 'Helene Lefevre');
+    });
+    test('EPC : refuse IBAN invalide, montant nul ou négatif, nom vide', () => {
+      leve(() => buildEpcPayload({ nom: 'X', iban: 'BE00', montantCents: 100 }));
+      leve(() => buildEpcPayload({ nom: 'X', iban: IBAN, montantCents: 0 }));
+      leve(() => buildEpcPayload({ nom: 'X', iban: IBAN, montantCents: -50 }));
+      leve(() => buildEpcPayload({ nom: '', iban: IBAN, montantCents: 100 }));
+    });
+
+    const produits = [
+      { id: 'a', nom_fr: 'Miel', lot: 'M02', prix_cents: 1000 },
+      { id: 'b', nom_fr: 'Hydromel', lot: '', prix_cents: 1500 },
+    ];
+    test('remise : pourcentage, montant, bornes', () => {
+      egal(parseRemise('10%', 2500).cents, 250);
+      egal(parseRemise('2,50', 2500).cents, 250);
+      egal(parseRemise('50', 2500).cents, 2500);
+      egal(parseRemise('', 2500).cents, 0);
+      egal(parseRemise('abc', 2500).cents, 0);
+    });
+    test('panier : total simple', () => {
+      const c = calculerPanier({ produits, quantites: { a: 2, b: 1 } });
+      egal(c.totalCents, 3500); egal(c.lignes.length, 2); egal(c.nbArticles, 3);
+    });
+    test('panier : consignes déduites, hors assiette de remise', () => {
+      const c = calculerPanier({ produits, quantites: { a: 2 }, consignes: 3, consigneCents: 50, remise: '10%' });
+      egal(c.sousTotalCents, 1850); egal(c.remiseCents, 200); egal(c.totalCents, 1650);
+    });
+    test('panier : retour de consignes seul = total négatif', () => {
+      egal(calculerPanier({ produits, quantites: {}, consignes: 4, consigneCents: 50 }).totalCents, -200);
+    });
+    test('panier : ligne à montant libre', () => {
+      const c = calculerPanier({ produits, quantites: {}, divers: [{ libelle: 'Bougie', cents: 400 }] });
+      egal(c.totalCents, 400); egal(c.lignes[0].produit_id, 'DIVERS');
+    });
+    test('mouvements de stock d\'une vente', () => {
+      const c = calculerPanier({ produits, quantites: { a: 2 }, consignes: 1, divers: [{ libelle: 'x', cents: 100 }] });
+      egal(mouvementsDeVente(c.lignes), [
+        { produit_id: 'a', delta: -2, motif: 'vente' },
+        { produit_id: 'POTS_VIDES', delta: 1, motif: 'retour_consigne' },
+      ]);
+    });
+
+    const echecs = resultats.filter((r) => !r.ok).length;
+    document.getElementById('bilan').textContent = echecs ? `${echecs} échec(s) sur ${resultats.length}` : `${resultats.length} tests réussis`;
+    document.getElementById('bilan').className = echecs ? 'ko' : 'ok';
+    document.getElementById('resultats').innerHTML = resultats
+      .map((r) => `<li class="${r.ok ? 'ok' : 'ko'}">${r.ok ? '✓' : '✗'} ${r.nom}${r.detail ? ` — ${r.detail}` : ''}</li>`).join('');
+    window.__tests = { total: resultats.length, echecs, resultats };
+  </script>
+</body>
+</html>

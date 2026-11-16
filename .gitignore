@@ -1,0 +1,7 @@
+# Anciennes pages : elles contiennent l'IBAN et l'URL du script Google en dur.
+# Ne jamais les publier dans un dépôt public.
+MarchéMiel sept2026.html
+MarcheMiel-test-QR-corrige.html
+
+# Spécification : contient des informations personnelles, conservée en local uniquement.
+SPECIFICATION.md
