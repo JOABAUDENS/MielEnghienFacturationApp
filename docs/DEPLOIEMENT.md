@@ -59,6 +59,12 @@ Une vente est toujours enregistrée sur le téléphone d'abord : la pastille ne 
 ## Bon à savoir
 
 - **Montants en centimes** dans le classeur (`1000` = 10,00 €) : divise par 100 dans tes analyses.
+- **Modifier le catalogue depuis le classeur** : dans l'onglet `Produits`, change une cellule
+  (nom, lot, prix…) ; le script horodate la ligne et les téléphones la reçoivent à leur
+  prochaine synchro (ouverture de l'appli, retour au premier plan, ou après une vente).
+  Les prix sont en centimes ; `actif` et `archive` valent `TRUE` ou `FALSE`. Pour ajouter un
+  produit, remplis une nouvelle ligne en laissant `id` vide : il est créé tout seul. Ne supprime
+  pas de ligne : mets `archive` à `TRUE`.
 - **Ne modifie pas à la main** les onglets `Ventes`, `LignesVente` et `MouvementsStock`.
   L'onglet `LignesVente` (une ligne par produit vendu) est le bon point de départ pour les statistiques.
 - **Mettre à jour le script** après une nouvelle version de `Code.gs` : colle le nouveau code,

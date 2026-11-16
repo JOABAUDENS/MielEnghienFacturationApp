@@ -31,6 +31,34 @@ function onOpen() {
     .addToUi();
 }
 
+/**
+ * Déclenché par Google à chaque modification MANUELLE du classeur.
+ * Dans l'onglet Produits, la ligne modifiée est horodatée pour que les téléphones la
+ * récupèrent à leur prochaine synchro. Une ligne ajoutée à la main reçoit un identifiant.
+ * (Les écritures faites par l'application ne passent pas par ici.)
+ */
+function onEdit(e) {
+  if (!e || !e.range) return;
+  const feuille = e.range.getSheet();
+  if (feuille.getName() !== 'Produits') return;
+  const colonnes = TABLES.Produits;
+  const premiere = Math.max(2, e.range.getRow());
+  const derniere = e.range.getLastRow();
+  if (derniere < premiere) return;
+
+  const instant = new Date().toISOString();
+  const iId = colonnes.indexOf('id');
+  const iMaj = colonnes.indexOf('updated_at'); // updated_at, device_id, synced_at se suivent
+  const lignes = feuille.getRange(premiere, 1, derniere - premiere + 1, colonnes.length).getValues();
+  lignes.forEach(function (ligne, i) {
+    const vide = ligne.slice(1, iMaj).every(function (v) { return v === ''; });
+    if (vide) return; // ligne effacée ou encore vide : on n'y touche pas
+    const numero = premiere + i;
+    if (!ligne[iId]) feuille.getRange(numero, iId + 1).setValue(Utilities.getUuid());
+    feuille.getRange(numero, iMaj + 1, 1, 3).setValues([[instant, 'sheet', instant]]);
+  });
+}
+
 /** Crée les onglets, les en-têtes et le secret. Peut être relancé sans risque. */
 function setup() {
   const classeur = SpreadsheetApp.getActiveSpreadsheet();
