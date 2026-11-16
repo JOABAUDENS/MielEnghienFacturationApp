@@ -1,28 +1,39 @@
 /**
  * Miel d'Enghien — service de synchronisation (Google Apps Script lié au Google Sheet).
  *
- * Installation : voir docs/DEPLOIEMENT.md.
+ * Installation et mise à jour : voir docs/DEPLOIEMENT.md.
  * L'application envoie ses écritures (ops) et reçoit en retour les lignes modifiées par
- * les autres appareils depuis sa dernière synchro (changes).
+ * les autres appareils depuis sa dernière synchro (changes). Le script envoie aussi les
+ * tickets de caisse par e-mail.
  *
  * Après toute modification de ce fichier : Déployer → Gérer les déploiements → ✏️ →
  * Version : « Nouvelle version » → Déployer (l'URL reste la même).
  */
 
-/** Colonnes de chaque onglet, dans l'ordre. `synced_at` est rempli par ce script. */
+/**
+ * Colonnes de chaque onglet, dans l'ordre. `synced_at` est rempli par ce script.
+ * Une nouvelle colonne s'ajoute toujours À LA FIN d'un onglet, jamais au milieu.
+ */
 const TABLES = {
   Produits: ['id', 'categorie', 'nom_fr', 'nom_nl', 'lot', 'format', 'prix_cents', 'prix_magasin_cents',
     'consigne', 'date_recolte', 'actif', 'archive', 'ordre', 'seuil_alerte', 'updated_at', 'device_id', 'synced_at'],
   Ventes: ['id', 'numero', 'date_heure', 'canal', 'lieu', 'client_id', 'mode_paiement', 'sous_total_cents',
-    'remise_cents', 'remise_libelle', 'total_cents', 'statut', 'langue', 'note', 'updated_at', 'device_id', 'synced_at'],
+    'remise_cents', 'remise_libelle', 'total_cents', 'statut', 'langue', 'note', 'updated_at', 'device_id', 'synced_at',
+    'ticket_email', 'ticket_envoye_le'],
   LignesVente: ['id', 'vente_id', 'produit_id', 'libelle', 'lot', 'quantite', 'prix_unitaire_cents',
     'total_cents', 'device_id', 'synced_at'],
   MouvementsStock: ['id', 'date_heure', 'produit_id', 'delta', 'motif', 'vente_id', 'note', 'device_id', 'synced_at'],
+  Clients: ['id', 'type', 'nom', 'email', 'telephone', 'langue', 'consentement_contact', 'consentement_le',
+    'note', 'fusionne_dans', 'supprime', 'updated_at', 'device_id', 'synced_at'],
 };
 
 /** Colonnes numériques ou booléennes ; toutes les autres sont forcées en texte brut. */
 const NON_TEXTE = ['prix_cents', 'prix_magasin_cents', 'consigne', 'actif', 'archive', 'ordre', 'seuil_alerte',
-  'sous_total_cents', 'remise_cents', 'total_cents', 'quantite', 'prix_unitaire_cents', 'delta'];
+  'sous_total_cents', 'remise_cents', 'total_cents', 'quantite', 'prix_unitaire_cents', 'delta',
+  'consentement_contact', 'supprime'];
+
+/** Onglets dont une modification manuelle doit redescendre vers les téléphones. */
+const MODIFIABLES_A_LA_MAIN = ['Produits', 'Clients'];
 
 function onOpen() {
   SpreadsheetApp.getUi().createMenu('🐝 Miel')
@@ -33,15 +44,15 @@ function onOpen() {
 
 /**
  * Déclenché par Google à chaque modification MANUELLE du classeur.
- * Dans l'onglet Produits, la ligne modifiée est horodatée pour que les téléphones la
- * récupèrent à leur prochaine synchro. Une ligne ajoutée à la main reçoit un identifiant.
- * (Les écritures faites par l'application ne passent pas par ici.)
+ * Dans les onglets Produits et Clients, la ligne modifiée est horodatée pour que les
+ * téléphones la récupèrent à leur prochaine synchro. Une ligne ajoutée à la main reçoit un
+ * identifiant. (Les écritures faites par l'application ne passent pas par ici.)
  */
 function onEdit(e) {
   if (!e || !e.range) return;
   const feuille = e.range.getSheet();
-  if (feuille.getName() !== 'Produits') return;
-  const colonnes = TABLES.Produits;
+  const colonnes = TABLES[feuille.getName()];
+  if (!colonnes || MODIFIABLES_A_LA_MAIN.indexOf(feuille.getName()) === -1) return;
   const premiere = Math.max(2, e.range.getRow());
   const derniere = e.range.getLastRow();
   if (derniere < premiere) return;
@@ -59,12 +70,22 @@ function onEdit(e) {
   });
 }
 
-/** Crée les onglets, les en-têtes et le secret. Peut être relancé sans risque. */
-function setup() {
-  const classeur = SpreadsheetApp.getActiveSpreadsheet();
+/**
+ * Crée les onglets manquants et complète les en-têtes (nouvelles colonnes en fin d'onglet).
+ * Sans effet si tout est déjà en place.
+ */
+function preparerOnglets(classeur) {
   Object.keys(TABLES).forEach(function (nom) {
     const colonnes = TABLES[nom];
-    const feuille = classeur.getSheetByName(nom) || classeur.insertSheet(nom);
+    let feuille = classeur.getSheetByName(nom);
+    if (feuille && feuille.getLastColumn() >= colonnes.length
+        && String(feuille.getRange(1, colonnes.length).getValue()) === colonnes[colonnes.length - 1]) {
+      return; // déjà à jour
+    }
+    feuille = feuille || classeur.insertSheet(nom);
+    if (feuille.getMaxColumns() < colonnes.length) {
+      feuille.insertColumnsAfter(feuille.getMaxColumns(), colonnes.length - feuille.getMaxColumns());
+    }
     feuille.getRange(1, 1, 1, colonnes.length).setValues([colonnes]).setFontWeight('bold');
     feuille.setFrozenRows(1);
     colonnes.forEach(function (colonne, i) {
@@ -74,6 +95,13 @@ function setup() {
       }
     });
   });
+}
+
+/** Crée les onglets, les en-têtes et le secret. Peut être relancé sans risque. */
+function setup() {
+  preparerOnglets(SpreadsheetApp.getActiveSpreadsheet());
+  // Fait apparaître la demande d'autorisation d'envoi d'e-mails (tickets de caisse).
+  MailApp.getRemainingDailyQuota();
   const proprietes = PropertiesService.getScriptProperties();
   if (!proprietes.getProperty('SECRET')) {
     proprietes.setProperty('SECRET', Utilities.getUuid().replace(/-/g, ''));
@@ -102,6 +130,19 @@ function doPost(e) {
   return ContentService.createTextOutput(JSON.stringify(reponse)).setMimeType(ContentService.MimeType.JSON);
 }
 
+/** Envoie le ticket joint à une vente. Lève une erreur si l'envoi échoue. */
+function envoyerTicket(row) {
+  const destinataire = String(row.ticket_email).trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(destinataire)) throw new Error('adresse e-mail invalide');
+  MailApp.sendEmail({
+    to: destinataire,
+    subject: String(row.ticket_sujet || 'Votre ticket Miel d\'Enghien'),
+    body: String(row.ticket_texte || ''),
+    htmlBody: String(row.ticket_html),
+    name: 'Miel d\'Enghien',
+  });
+}
+
 /**
  * @param {{secret: string, device_id: string, cursor?: string, full?: boolean,
  *          ops?: Array<{table: string, row: Object}>}} requete
@@ -115,19 +156,21 @@ function traiter(requete) {
   verrou.waitLock(25000); // une seule synchro à la fois
   try {
     const classeur = SpreadsheetApp.getActiveSpreadsheet();
+    preparerOnglets(classeur);
     const instant = new Date().toISOString();
     const parTable = {};
     (requete.ops || []).forEach(function (op) {
-      if (!TABLES[op.table]) throw new Error('Onglet inconnu : ' + op.table);
+      if (!TABLES[op.table]) throw new Error('Onglet inconnu : ' + op.table + ' (mets le script à jour)');
       if (!op.row || !op.row.id) throw new Error('Ligne sans id dans ' + op.table);
       (parTable[op.table] = parTable[op.table] || []).push(op.row);
     });
 
     const changements = {};
+    const tickets = [];
+    const erreursTicket = [];
     Object.keys(TABLES).forEach(function (nom) {
       const colonnes = TABLES[nom];
       const feuille = classeur.getSheetByName(nom);
-      if (!feuille) throw new Error('Onglet manquant : ' + nom + ' (lance « Initialiser les onglets »)');
       const nbLignes = feuille.getLastRow();
       const donnees = nbLignes > 1 ? feuille.getRange(2, 1, nbLignes - 1, colonnes.length).getValues() : [];
 
@@ -135,6 +178,7 @@ function traiter(requete) {
       const index = {};
       donnees.forEach(function (ligne, i) { index[ligne[0]] = i; });
       const nbExistantes = donnees.length;
+      const iEnvoye = colonnes.indexOf('ticket_envoye_le');
       (parTable[nom] || []).forEach(function (row) {
         const valeurs = colonnes.map(function (c) {
           if (c === 'synced_at') return instant;
@@ -142,7 +186,23 @@ function traiter(requete) {
           return v === undefined || v === null ? '' : v;
         });
         const id = String(row.id);
-        if (index[id] !== undefined) {
+        const existe = index[id] !== undefined;
+
+        if (nom === 'Ventes') {
+          // Un ticket déjà envoyé le reste, même si le téléphone ne le sait pas encore.
+          if (existe && !valeurs[iEnvoye]) valeurs[iEnvoye] = donnees[index[id]][iEnvoye];
+          if (row.ticket_email && row.ticket_html && !valeurs[iEnvoye]) {
+            try {
+              envoyerTicket(row);
+              valeurs[iEnvoye] = instant;
+              tickets.push({ vente_id: id, envoye_le: instant });
+            } catch (erreur) {
+              erreursTicket.push((row.numero || id) + ' : ' + String((erreur && erreur.message) || erreur));
+            }
+          }
+        }
+
+        if (existe) {
           donnees[index[id]] = valeurs;
           // Ligne déjà dans la feuille : réécrite sur place. Sinon elle part avec les ajouts.
           if (index[id] < nbExistantes) feuille.getRange(index[id] + 2, 1, 1, colonnes.length).setValues([valeurs]);
@@ -175,7 +235,7 @@ function traiter(requete) {
       });
     });
 
-    return { ok: true, cursor: instant, changes: changements };
+    return { ok: true, cursor: instant, changes: changements, tickets: tickets, erreurs_ticket: erreursTicket };
   } finally {
     verrou.releaseLock();
   }

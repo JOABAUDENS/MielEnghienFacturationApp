@@ -6,9 +6,11 @@ import * as vente from './views/vente.js';
 import * as paiement from './views/paiement.js';
 import * as ventes from './views/ventes.js';
 import * as stock from './views/stock.js';
+import * as clients from './views/clients.js';
 import * as reglages from './views/reglages.js';
+import { rechargerClients } from './chargement.js';
 
-const ONGLETS = { vente, ventes, stock, reglages };
+const ONGLETS = { vente, ventes, stock, clients, reglages };
 const vue = document.getElementById('vue');
 const nav = document.getElementById('onglets');
 
@@ -82,6 +84,7 @@ async function demarrer() {
     etat.config = await db.initialiser();
     etat.produits = await db.produits();
     etat.stocks = await db.stocks();
+    await rechargerClients();
   } catch (erreur) {
     console.error(erreur);
     vue.innerHTML = `<p class="alerte">Impossible d'ouvrir le stockage local : ${erreur.message}</p>`;

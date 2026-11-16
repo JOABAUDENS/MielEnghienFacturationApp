@@ -1,11 +1,11 @@
 // Stockage local IndexedDB : source de vérité de l'appareil.
 // Magasins : produits, ventes, mouvements (journal de stock, ajout seul), config (clé/valeur),
-// outbox (file d'attente des écritures à envoyer au Google Sheet).
+// clients, outbox (file d'attente des écritures à envoyer au Google Sheet).
 
 import { calculerStocks } from './stock.js';
 
 const NOM_BASE = 'miel-enghien';
-const VERSION = 2;
+const VERSION = 3;
 
 /** Valeurs par défaut de la configuration. Aucun IBAN ici : il se saisit dans Réglages. */
 export const CONFIG_DEFAUT = {
@@ -19,6 +19,9 @@ export const CONFIG_DEFAUT = {
   canal: 'marche',
   lieu: '',
   catalogue_initialise: false,
+  // Ticket de caisse
+  ticket_vendeur: '',
+  ticket_pied: '',
   // Synchronisation (propre à chaque appareil)
   sync_url: '',
   sync_secret: '',
@@ -39,7 +42,7 @@ const PRODUITS_INITIAUX = [
 ];
 
 /** Nom de l'onglet du Sheet -> magasin local. */
-const MAGASIN = { Produits: 'produits', Ventes: 'ventes', MouvementsStock: 'mouvements' };
+const MAGASIN = { Produits: 'produits', Ventes: 'ventes', MouvementsStock: 'mouvements', Clients: 'clients' };
 
 let basePromise;
 let idAppareil = '';
@@ -58,12 +61,13 @@ function ouvrir() {
       if (e.oldVersion < 2) {
         const outbox = db.createObjectStore('outbox', { keyPath: 'cle' });
         // Tout ce qui existait avant la synchro (lot 1) est mis en file d'attente.
-        for (const [table, magasin] of Object.entries(MAGASIN)) {
+        for (const [table, magasin] of [['Produits', 'produits'], ['Ventes', 'ventes'], ['MouvementsStock', 'mouvements']]) {
           req.transaction.objectStore(magasin).getAllKeys().onsuccess = (ev) => {
             for (const id of ev.target.result) outbox.put(entreeOutbox(table, id));
           };
         }
       }
+      if (e.oldVersion < 3) db.createObjectStore('clients', { keyPath: 'id' });
     };
     req.onsuccess = () => {
       // Une version plus récente de l'appli veut mettre la base à niveau : on lui laisse la place.
@@ -260,8 +264,8 @@ export async function effacerVentes() {
 
 /** Copie complète de la base, pour la sauvegarde manuelle (sans le secret de synchro). */
 export async function exporterTout() {
-  const [prods, ventes, mouvements, config] = await Promise.all([
-    tout('produits'), tout('ventes'), tout('mouvements'), tout('config'),
+  const [prods, ventes, mouvements, config, listeClients] = await Promise.all([
+    tout('produits'), tout('ventes'), tout('mouvements'), tout('config'), tout('clients'),
   ]);
   return {
     format: 'miel-enghien-sauvegarde',
@@ -270,6 +274,7 @@ export async function exporterTout() {
     produits: prods,
     ventes,
     mouvements,
+    clients: listeClients,
     config: config.filter((c) => c.cle !== 'sync_secret'),
   };
 }
@@ -296,7 +301,7 @@ export async function lireOutbox(limite) {
  */
 export async function materialiser(entrees) {
   const db = await ouvrir();
-  const tx = db.transaction(['produits', 'ventes', 'mouvements']);
+  const tx = db.transaction(['produits', 'ventes', 'mouvements', 'clients']);
   const ops = [];
   for (const e of entrees) {
     const row = await attendre(tx.objectStore(MAGASIN[e.table]).get(e.id));
@@ -352,8 +357,8 @@ const nombreOuNull = (v) => (v === '' || v === null || v === undefined ? null : 
  */
 export async function fusionner(changements) {
   const db = await ouvrir();
-  const tx = db.transaction(['produits', 'ventes', 'mouvements'], 'readwrite');
-  const bilan = { produits: 0, ventes: 0, mouvements: 0 };
+  const tx = db.transaction(['produits', 'ventes', 'mouvements', 'clients'], 'readwrite');
+  const bilan = { produits: 0, ventes: 0, mouvements: 0, clients: 0 };
   const plusRecent = (distant, local) => !local || String(distant.updated_at) > String(local.updated_at);
 
   for (const { synced_at, ...p } of changements.Produits || []) {
@@ -392,6 +397,13 @@ export async function fusionner(changements) {
     bilan.mouvements += 1;
   }
 
+  for (const { synced_at, ...c } of changements.Clients || []) {
+    const magasin = tx.objectStore('clients');
+    if (!plusRecent(c, await attendre(magasin.get(c.id)))) continue;
+    magasin.put({ ...c, consentement_contact: c.consentement_contact === true, supprime: c.supprime === true });
+    bilan.clients += 1;
+  }
+
   await finTransaction(tx);
   return bilan;
 }
@@ -403,4 +415,61 @@ export async function plusGrandNumero(debut) {
     if (String(v.numero).startsWith(debut)) max = Math.max(max, parseInt(String(v.numero).slice(debut.length), 10) || 0);
   }
   return max;
+}
+
+// ---------------------------------------------------------------------------
+// Clients
+// ---------------------------------------------------------------------------
+
+export async function clients() {
+  return tout('clients');
+}
+
+export async function toutesLesVentes() {
+  return tout('ventes');
+}
+
+export async function enregistrerClients(liste) {
+  const db = await ouvrir();
+  const tx = db.transaction(['clients', 'outbox'], 'readwrite');
+  for (const c of liste) {
+    tx.objectStore('clients').put({ ...c, updated_at: maintenant(), device_id: idAppareil });
+    tx.objectStore('outbox').put(entreeOutbox('Clients', c.id));
+  }
+  await finTransaction(tx);
+}
+
+export const enregistrerClient = (client) => enregistrerClients([client]);
+
+/**
+ * Fusion de deux fiches : les ventes de `ancienId` sont rattachées à `nouveauId` et la fiche
+ * `ancienId` est marquée comme fusionnée, dans une seule transaction.
+ */
+export async function fusionnerClients(ancienId, nouveauId) {
+  const db = await ouvrir();
+  const tx = db.transaction(['clients', 'ventes', 'outbox'], 'readwrite');
+  const ventes = tx.objectStore('ventes');
+  for (const v of await attendre(ventes.getAll())) {
+    if (v.client_id !== ancienId) continue;
+    ventes.put({ ...v, client_id: nouveauId, updated_at: maintenant(), device_id: idAppareil });
+    tx.objectStore('outbox').put(entreeOutbox('Ventes', v.id));
+  }
+  const ancien = await attendre(tx.objectStore('clients').get(ancienId));
+  if (ancien) {
+    tx.objectStore('clients').put({ ...ancien, fusionne_dans: nouveauId, updated_at: maintenant(), device_id: idAppareil });
+    tx.objectStore('outbox').put(entreeOutbox('Clients', ancienId));
+  }
+  await finTransaction(tx);
+}
+
+/** Note la date d'envoi des tickets confirmée par le serveur (sans remise en file d'attente). */
+export async function marquerTickets(tickets) {
+  const db = await ouvrir();
+  const tx = db.transaction('ventes', 'readwrite');
+  const ventes = tx.objectStore('ventes');
+  for (const t of tickets) {
+    const v = await attendre(ventes.get(t.vente_id));
+    if (v) ventes.put({ ...v, ticket_envoye_le: t.envoye_le });
+  }
+  await finTransaction(tx);
 }

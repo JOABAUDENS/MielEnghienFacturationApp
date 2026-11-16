@@ -65,7 +65,7 @@ h2 { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; colo
   padding-bottom: env(safe-area-inset-bottom);
 }
 .onglets button {
-  flex: 1; height: var(--hauteur-onglets);
+  flex: 1; min-width: 0; padding: 0 2px; height: var(--hauteur-onglets);
   background: none; border: 0; font-size: 0.72rem; color: var(--texte-doux);
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
 }
@@ -111,7 +111,21 @@ input[type="text"], select {
   background: var(--carte); border: 1px solid #fcd34d; border-radius: 10px;
 }
 input.court { flex: 0 0 120px; }
-input:focus, select:focus, button:focus-visible { outline: 3px solid var(--miel); outline-offset: 1px; }
+textarea {
+  display: block; width: 100%; margin-top: 4px; padding: 10px 12px; font: inherit; font-weight: 400; color: inherit;
+  background: var(--carte); border: 1px solid #fcd34d; border-radius: 10px; resize: vertical;
+}
+.resultat {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; min-height: 48px;
+  margin-top: 6px; padding: 8px 12px; text-align: left;
+  background: var(--carte); border: 1px solid var(--bord); border-radius: 10px;
+}
+.resultat span { font-size: 0.85rem; color: var(--texte-doux); }
+.resultat.creer { border-style: dashed; color: var(--miel-fonce); font-weight: 600; }
+button.lien-ligne { width: 100%; text-align: left; }
+.encadre { background: var(--carte); border: 1px solid var(--bord); border-radius: 12px; padding: 4px 12px 12px; }
+.case .aide { font-weight: 400; }
+textarea:focus, input:focus, select:focus, button:focus-visible { outline: 3px solid var(--miel); outline-offset: 1px; }
 
 .contexte { display: flex; gap: 8px; margin-bottom: 4px; }
 .contexte select { flex: 0 0 130px; }

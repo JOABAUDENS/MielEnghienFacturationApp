@@ -56,6 +56,28 @@ arrivent tout seuls.
 
 Une vente est toujours enregistrée sur le téléphone d'abord : la pastille ne bloque jamais la caisse.
 
+## Mettre à jour le script
+
+À faire quand une nouvelle version de l'application le demande (nouvel onglet, envoi de tickets…).
+
+1. Dans le classeur : **Extensions → Apps Script**. Remplace tout le code par le nouveau
+   contenu de [`backend/Code.gs`](../backend/Code.gs), puis 💾.
+2. Reviens sur le classeur, recharge la page, puis **🐝 Miel → Initialiser les onglets**.
+   Si le script a besoin d'une nouvelle permission (par exemple envoyer des e-mails pour les
+   tickets), Google la demande à ce moment-là : accepte-la, puis relance le menu une fois.
+3. Dans l'éditeur : **Déployer → Gérer les déploiements → ✏️ → Version : Nouvelle version →
+   Déployer**. L'URL ne change pas. (Un « Nouveau déploiement » créerait une autre URL.)
+
+Si la pastille de l'application affiche ⚠ avec « Réponse illisible », c'est le plus souvent
+que l'étape 2 (permission) ou l'étape 3 (nouvelle version) a été oubliée.
+
+## Tickets par e-mail
+
+Les tickets partent de **ton adresse Gmail**, avec « Miel d'Enghien » comme nom d'expéditeur,
+et se retrouvent dans tes messages envoyés. Google limite un compte gratuit à environ
+100 e-mails par jour. Dans l'application, l'envoi n'est proposé que si le vendeur est
+renseigné dans **Réglages → Ticket de caisse** et si le client a une adresse e-mail.
+
 ## Bon à savoir
 
 - **Montants en centimes** dans le classeur (`1000` = 10,00 €) : divise par 100 dans tes analyses.
@@ -67,9 +89,9 @@ Une vente est toujours enregistrée sur le téléphone d'abord : la pastille ne 
   pas de ligne : mets `archive` à `TRUE`.
 - **Ne modifie pas à la main** les onglets `Ventes`, `LignesVente` et `MouvementsStock`.
   L'onglet `LignesVente` (une ligne par produit vendu) est le bon point de départ pour les statistiques.
-- **Mettre à jour le script** après une nouvelle version de `Code.gs` : colle le nouveau code,
-  puis **Déployer → Gérer les déploiements → ✏️ → Version : Nouvelle version → Déployer**.
-  L'URL ne change pas. (Un « Nouveau déploiement » créerait une autre URL.)
+- **Modifier un client depuis le classeur** : l'onglet `Clients` fonctionne comme `Produits`
+  (nom, e-mail, téléphone, langue `fr` ou `nl`, note). Pour retirer une fiche, utilise plutôt
+  « Supprimer cette fiche » dans l'application.
 - **Téléphone neuf ou réinstallation** : saisis l'URL et le secret, puis **Tout rapatrier**.
 - **Changer le secret** : éditeur Apps Script → ⚙️ Paramètres du projet → Propriétés du
   script → `SECRET`, puis ressaisis-le dans chaque téléphone.

@@ -334,6 +334,7 @@ function formulaire(el) {
 }
 
 export async function rendre(el) {
+  el.onsubmit = null;
   const mode = etat.edition?.mode;
   if (mode === 'detail') await detail(el);
   else if (mode === 'lot' || mode === 'produit') formulaire(el);

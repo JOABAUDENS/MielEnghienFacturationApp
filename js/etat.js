@@ -1,7 +1,7 @@
 // État en mémoire partagé par les écrans, et petits utilitaires d'interface.
 
 /** À incrémenter en même temps que VERSION dans sw.js à chaque publication. */
-export const VERSION_APP = '1.2.0';
+export const VERSION_APP = '1.3.0';
 
 export const CATEGORIES = { miel: 'Miel', hydromel: 'Hydromel', autre: 'Autres' };
 export const CANAUX = { marche: 'Marché', domicile: 'Domicile', autre: 'Autre' };
@@ -23,7 +23,7 @@ export const MOTIFS = {
 };
 
 export function panierVide() {
-  return { quantites: {}, consignes: 0, divers: [], remise: '' };
+  return { quantites: {}, consignes: 0, divers: [], remise: '', client_id: null, ticket: false };
 }
 
 export const etat = {
@@ -31,11 +31,14 @@ export const etat = {
   produits: [],
   /** produit_id -> { quantite, initialise } ; recalculé après chaque mouvement */
   stocks: {},
+  clients: [],
+  /** client_id -> { nb, total_cents, dernier } */
+  statsClients: {},
   panier: panierVide(),
   onglet: 'vente',
   /** Paiement en cours (null = pas de paiement) : { calcul, numero, etape } */
   paiement: null,
-  /** Sous-écran de l'onglet Stock (null = liste) : { mode: 'detail'|'produit'|'lot', … } */
+  /** Sous-écran des onglets Stock et Clients (null = liste) : { mode: 'detail'|'produit'|'lot'|'client', … } */
   edition: null,
 };
 

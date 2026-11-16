@@ -6,6 +6,7 @@ import { mouvementsDeVente } from '../panier.js';
 import { formatEuro, toCents, centsToInput } from '../money.js';
 import * as db from '../db.js';
 import * as sync from '../sync.js';
+import { rechargerClients } from '../chargement.js';
 
 let verrouEcran = null;
 
@@ -46,20 +47,24 @@ async function valider(mode) {
   const { calcul, numero } = etat.paiement;
   const date = db.maintenant();
   const venteId = crypto.randomUUID();
+  const client = etat.clients.find((c) => c.id === etat.panier.client_id) || null;
+  const ticketEmail = etat.panier.ticket && client?.email ? client.email : '';
   const vente = {
     id: venteId,
     numero,
     date_heure: date,
     canal: etat.config.canal,
     lieu: etat.config.lieu,
-    client_id: null,
+    client_id: client?.id || null,
     mode_paiement: mode,
     sous_total_cents: calcul.sousTotalCents,
     remise_cents: calcul.remiseCents,
     remise_libelle: calcul.remiseLibelle,
     total_cents: calcul.totalCents,
     statut: 'payee',
-    langue: 'fr',
+    langue: client?.langue === 'nl' ? 'nl' : 'fr',
+    ticket_email: ticketEmail,
+    ticket_envoye_le: '',
     note: '',
     lignes: calcul.lignes.map((l) => ({ id: crypto.randomUUID(), vente_id: venteId, ...l })),
     updated_at: date,
@@ -83,11 +88,12 @@ async function valider(mode) {
   }
   etat.config.compteur_ticket = compteur;
   etat.stocks = await db.stocks();
+  await rechargerClients();
   sync.apresEcriture(); // envoi en arrière-plan : on n'attend jamais le réseau
   etat.panier = panierVide();
   etat.paiement = null;
   relacherEcran();
-  toast(`Vente ${numero} enregistrée · ${formatEuro(vente.total_cents)}`);
+  toast(`Vente ${numero} enregistrée · ${formatEuro(vente.total_cents)}${ticketEmail ? ' · ticket en cours d\'envoi' : ''}`);
   rafraichir();
 }
 
@@ -223,5 +229,5 @@ export function rendre(el) {
     if (recu === null || recu < total) zone.textContent = '';
     else zone.textContent = `À rendre : ${formatEuro(recu - total)}`;
   };
-  el.onchange = null;
+  el.onchange = el.onsubmit = null;
 }

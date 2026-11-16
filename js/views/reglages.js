@@ -22,6 +22,13 @@ export async function rendre(el) {
       <label>Montant d'une consigne (€) <input name="consigne" type="text" inputmode="decimal" value="${centsToInput(c.consigne_cents)}"></label>
       <label>Préfixe des tickets de cet appareil <input name="prefixe" type="text" maxlength="2" value="${esc(c.prefixe)}" autocapitalize="characters"></label>
 
+      <h2>Ticket de caisse</h2>
+      <label>Vendeur (dénomination, adresse, n° de TVA)
+        <textarea name="ticket_vendeur" rows="3" placeholder="Dénomination&#10;Adresse&#10;TVA BE …">${esc(c.ticket_vendeur)}</textarea>
+      </label>
+      <label>Mot de la fin (facultatif) <input name="ticket_pied" type="text" value="${esc(c.ticket_pied)}" placeholder="Merci et à bientôt !"></label>
+      <p class="aide">L'envoi du ticket par e-mail n'est proposé que si le vendeur est renseigné et la synchronisation configurée. Le ticket porte la mention « Ce document n'est pas une facture ».</p>
+
       <h2>Synchronisation Google Sheet</h2>
       <label>URL du script <input name="sync_url" type="text" inputmode="url" value="${esc(c.sync_url)}" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off" autocapitalize="none" spellcheck="false"></label>
       <label>Secret <input name="sync_secret" type="text" value="${esc(c.sync_secret)}" autocomplete="off" autocapitalize="none" spellcheck="false"></label>
@@ -66,6 +73,8 @@ export async function rendre(el) {
       bic: f.get('bic').replace(/\s+/g, '').toUpperCase(),
       consigne_cents: consigne,
       prefixe: f.get('prefixe').trim().toUpperCase().replace(/[^A-Z0-9]/g, '') || 'J',
+      ticket_vendeur: f.get('ticket_vendeur').trim(),
+      ticket_pied: f.get('ticket_pied').trim(),
       sync_url: url,
       sync_secret: f.get('sync_secret').trim(),
     };
@@ -107,5 +116,5 @@ export async function rendre(el) {
     URL.revokeObjectURL(url);
     toast('Sauvegarde exportée');
   };
-  el.oninput = el.onchange = null;
+  el.oninput = el.onchange = el.onsubmit = null;
 }

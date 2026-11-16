@@ -20,6 +20,8 @@
     import { buildEpcPayload, ibanValide, nettoyer, formaterIban } from '../js/epc.js';
     import { calculerPanier, parseRemise, mouvementsDeVente } from '../js/panier.js';
     import { calculerStocks, niveauStock, ecartInventaire } from '../js/stock.js';
+    import { normaliser, emailValide, rechercher, trouverDoublons, statsClients, distance } from '../js/clients.js';
+    import { construireTicket } from '../js/ticket.js';
 
     const resultats = [];
     function test(nom, f) {
@@ -149,6 +151,83 @@
     });
     test('stock : inventaire — théorique 12, compté 10 donne un écart de −2', () => {
       egal(ecartInventaire(10, 12), -2); egal(ecartInventaire(5, -3), 8); egal(ecartInventaire(7, 7), 0);
+    });
+
+    const clients = [
+      { id: '1', nom: 'Hélène Lefèvre', email: 'helene@exemple.be' },
+      { id: '2', nom: 'Marc Dubois', email: '' },
+      { id: '3', nom: 'Helena Peeters', email: 'h.peeters@exemple.be' },
+      { id: '4', nom: 'Ancienne fiche', email: 'vieux@exemple.be', fusionne_dans: '1' },
+      { id: '5', nom: 'Effacé', email: '', supprime: true },
+    ];
+    test('clients : normalisation et e-mail', () => {
+      egal(normaliser('  Hélène  LEFÈVRE '), 'helene lefevre');
+      egal(emailValide('a@b.be'), true); egal(emailValide('a@b'), false); egal(emailValide(''), false);
+    });
+    test('clients : recherche sans accents ni casse, sur nom et e-mail', () => {
+      egal(rechercher(clients, 'hel').map((c) => c.id), ['3', '1']);
+      egal(rechercher(clients, 'LEFEV').map((c) => c.id), ['1']);
+      egal(rechercher(clients, 'h.peeters').map((c) => c.id), ['3']);
+      egal(rechercher(clients, 'h').length, 0);
+    });
+    test('clients : le dernier acheteur sort en premier', () => {
+      egal(rechercher(clients, 'hel', { 1: { dernier: '2026-11-01' }, 3: { dernier: '2026-05-01' } }).map((c) => c.id), ['1', '3']);
+    });
+    test('clients : fiches fusionnées ou supprimées exclues de la recherche', () => {
+      egal(rechercher(clients, 'ancienne').length, 0); egal(rechercher(clients, 'efface').length, 0);
+    });
+    test('clients : doublon par e-mail', () => {
+      egal(trouverDoublons(clients, { nom: 'Autre nom', email: ' HELENE@exemple.be ' }).parEmail.id, '1');
+      egal(trouverDoublons(clients, { nom: 'Autre nom', email: 'neuf@exemple.be' }).parEmail, null);
+    });
+    test('clients : doublon par nom identique ou très proche', () => {
+      egal(trouverDoublons(clients, { nom: 'helene lefevre', email: '' }).parNom.map((c) => c.id), ['1']);
+      egal(trouverDoublons(clients, { nom: 'Marc Duboi', email: '' }).parNom.map((c) => c.id), ['2']);
+      egal(trouverDoublons(clients, { nom: 'Jean Martin', email: '' }).parNom.length, 0);
+      egal(trouverDoublons(clients, { id: '2', nom: 'Marc Dubois', email: '' }).parNom.length, 0);
+      egal(distance('chat', 'chats'), 1);
+    });
+    test('clients : statistiques hors ventes annulées', () => {
+      const s = statsClients([
+        { client_id: '1', total_cents: 2000, date_heure: '2026-11-01T10:00:00Z', statut: 'payee' },
+        { client_id: '1', total_cents: 1000, date_heure: '2026-11-10T10:00:00Z', statut: 'payee' },
+        { client_id: '1', total_cents: 5000, date_heure: '2026-11-12T10:00:00Z', statut: 'annulee' },
+        { client_id: null, total_cents: 700, date_heure: '2026-11-12T10:00:00Z', statut: 'payee' },
+      ]);
+      egal(s, { 1: { nb: 2, total_cents: 3000, dernier: '2026-11-10T10:00:00Z' } });
+    });
+
+    const venteTicket = {
+      numero: 'J26-0042', date_heure: '2026-11-17T13:05:00Z', mode_paiement: 'qr', langue: 'fr',
+      total_cents: 1750, remise_cents: 200, remise_libelle: '10 %',
+      lignes: [
+        { produit_id: 'a', libelle: 'Miel <été>', lot: 'M03', quantite: 2, total_cents: 2000 },
+        { produit_id: 'RETOUR_CONSIGNE', libelle: 'Retour consigne', lot: '', quantite: 1, total_cents: -50 },
+      ],
+    };
+    const configTicket = { ticket_vendeur: 'Exemple asbl\nRue du Test 1, 1000 Bruxelles', ticket_pied: 'Merci !' };
+    test('ticket : contenu en français', () => {
+      const t = construireTicket(venteTicket, configTicket);
+      egal(t.sujet, "Votre ticket Miel d'Enghien J26-0042");
+      for (const morceau of ['2 × Miel <été> (lot M03) : 20,00 €', '1 × Retour consigne : -0,50 €', 'Remise 10 % : -2,00 €',
+        'Total : 17,50 €', 'Payé par virement', 'Vendeur : Exemple asbl, Rue du Test 1, 1000 Bruxelles', "Ce document n'est pas une facture.", 'Merci !']) {
+        if (!t.texte.includes(morceau)) throw new Error('absent du texte : ' + morceau);
+      }
+    });
+    test('ticket : le HTML échappe les caractères spéciaux', () => {
+      const t = construireTicket(venteTicket, configTicket);
+      egal(t.html.includes('Miel &lt;été&gt;'), true); egal(t.html.includes('<été>'), false);
+    });
+    test('ticket : néerlandais avec noms traduits', () => {
+      const t = construireTicket({ ...venteTicket, langue: 'nl', mode_paiement: 'liquide' }, configTicket, { a: 'Zomerhoning' });
+      for (const morceau of ['2 × Zomerhoning (lot M03)', 'Statiegeld terug', 'Korting', 'Totaal : 17,50 €', 'Contant betaald', 'Dit document is geen factuur.']) {
+        if (!t.texte.includes(morceau)) throw new Error('absent du texte : ' + morceau);
+      }
+      egal(t.sujet, "Uw ticket Miel d'Enghien J26-0042");
+    });
+    test('ticket : sans vendeur ni pied, pas de ligne vide en trop', () => {
+      const t = construireTicket(venteTicket, {});
+      egal(t.texte.includes('Vendeur'), false); egal(/\n\n\n/.test(t.texte), false);
     });
 
     const echecs = resultats.filter((r) => !r.ok).length;

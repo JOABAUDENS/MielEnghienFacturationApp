@@ -1,7 +1,13 @@
 // Ventes du jour : totaux par mode de paiement et liste des tickets (lecture seule en V1 lot 1).
-import { esc, MODES } from '../etat.js';
+import { etat, esc, toast, MODES } from '../etat.js';
+import { construireTicket } from '../ticket.js';
 import { formatEuro } from '../money.js';
 import * as db from '../db.js';
+
+function nomClient(vente) {
+  const client = etat.clients.find((c) => c.id === vente.client_id);
+  return client ? (client.nom || client.email) : '';
+}
 
 export async function rendre(el) {
   const debut = new Date(); debut.setHours(0, 0, 0, 0);
@@ -38,6 +44,23 @@ export async function rendre(el) {
         </summary>
         ${v.lignes.map((l) => `<div class="recap-ligne"><span>${l.quantite} × ${esc(l.libelle)} ${esc(l.lot)}</span><span>${formatEuro(l.total_cents)}</span></div>`).join('')}
         ${v.remise_cents ? `<div class="recap-ligne"><span>Remise ${esc(v.remise_libelle)}</span><span>−${formatEuro(v.remise_cents)}</span></div>` : ''}
+        ${nomClient(v) ? `<div class="recap-ligne"><span>Client</span><span>${esc(nomClient(v))}</span></div>` : ''}
+        ${v.ticket_email ? `<div class="recap-ligne"><span>Ticket par e-mail</span><span>${v.ticket_envoye_le ? 'envoyé' : 'en attente d\'envoi'}</span></div>` : ''}
+        <button class="btn-secondaire large" data-action="partager" data-id="${v.id}">Partager le ticket</button>
       </details>`).join('') || '<p class="vide">Aucune vente aujourd\'hui.</p>'}`;
-  el.onclick = el.oninput = el.onchange = null;
+  // Partage du ticket en texte (WhatsApp, SMS…) ; à défaut, copie dans le presse-papiers.
+  el.onclick = async (e) => {
+    const bouton = e.target.closest('[data-action="partager"]');
+    if (!bouton) return;
+    const vente = ventes.find((v) => v.id === bouton.dataset.id);
+    const nomsNl = Object.fromEntries(etat.produits.filter((p) => p.nom_nl).map((p) => [p.id, p.nom_nl]));
+    const { sujet, texte } = construireTicket(vente, etat.config, nomsNl);
+    try {
+      if (navigator.share) await navigator.share({ title: sujet, text: texte });
+      else { await navigator.clipboard.writeText(texte); toast('Ticket copié'); }
+    } catch (erreur) {
+      if (erreur.name !== 'AbortError') toast('Partage impossible', 'erreur');
+    }
+  };
+  el.oninput = el.onchange = el.onsubmit = null;
 }

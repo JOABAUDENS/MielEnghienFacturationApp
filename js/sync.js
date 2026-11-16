@@ -1,6 +1,8 @@
 // Synchronisation avec le Google Sheet : envoi de la file d'attente (push) puis récupération
 // des écritures des autres appareils (pull). Ne bloque jamais l'interface.
-import { etat, rafraichir } from './etat.js';
+import { etat, rafraichir, toast } from './etat.js';
+import { construireTicket } from './ticket.js';
+import { rechargerClients } from './chargement.js';
 import * as db from './db.js';
 
 const TAILLE_LOT = 100;
@@ -69,9 +71,24 @@ async function appliquer(reponse) {
   }
   if (bilan.produits) etat.produits = await db.produits();
   if (bilan.mouvements) etat.stocks = await db.stocks();
+  if (bilan.clients || bilan.ventes) await rechargerClients();
   // On ne redessine pas pendant un paiement ou une saisie de produit.
-  if ((bilan.produits || bilan.ventes || bilan.mouvements) && !etat.paiement && !etat.edition && etat.onglet !== 'reglages') rafraichir();
+  if ((bilan.produits || bilan.ventes || bilan.mouvements || bilan.clients) && !etat.paiement && !etat.edition && etat.onglet !== 'reglages') rafraichir();
   return bilan;
+}
+
+/**
+ * Pour chaque vente dont le ticket doit partir par e-mail, joint le ticket rédigé (le serveur
+ * se contente de l'envoyer, une seule fois).
+ */
+function joindreTickets(ops) {
+  const nomsNl = Object.fromEntries(etat.produits.filter((p) => p.nom_nl).map((p) => [p.id, p.nom_nl]));
+  for (const op of ops) {
+    if (op.table !== 'Ventes' || !op.row.ticket_email || op.row.ticket_envoye_le) continue;
+    const lignes = ops.filter((o) => o.table === 'LignesVente' && o.row.vente_id === op.row.id).map((o) => o.row);
+    const ticket = construireTicket({ ...op.row, lignes }, etat.config, nomsNl);
+    Object.assign(op.row, { ticket_sujet: ticket.sujet, ticket_texte: ticket.texte, ticket_html: ticket.html });
+  }
 }
 
 let enCours = null;
@@ -97,8 +114,14 @@ async function executer(complet) {
     const entrees = await db.lireOutbox(TAILLE_LOT);
     if (!entrees.length && !premier && !complet) break;
     const ops = await db.materialiser(entrees);
+    joindreTickets(ops);
     const reponse = await appeler({ cursor: etat.config.sync_cursor, full: complet && premier, ops });
     await db.acquitter(entrees);
+    if (reponse.tickets?.length) {
+      await db.marquerTickets(reponse.tickets);
+      toast(`${reponse.tickets.length} ticket(s) envoyé(s) par e-mail`);
+    }
+    if (reponse.erreurs_ticket?.length) toast(`Ticket non envoyé — ${reponse.erreurs_ticket[0]}`, 'erreur');
     await appliquer(reponse);
     await actualiserCompteur();
     premier = false;
