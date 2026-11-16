@@ -1,6 +1,6 @@
 // Service worker : met toute l'application en cache pour un fonctionnement hors ligne.
 // À chaque publication : incrémenter VERSION (et VERSION_APP dans js/etat.js).
-const VERSION = '1.0.0';
+const VERSION = '1.0.1';
 const CACHE = `miel-enghien-${VERSION}`;
 
 const FICHIERS = [

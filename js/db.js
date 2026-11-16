@@ -157,6 +157,25 @@ export async function ventesEntre(debutIso, finIso) {
   return liste.reverse();
 }
 
+/** Nombre de ventes enregistrées sur l'appareil. */
+export async function nombreVentes() {
+  const db = await ouvrir();
+  return attendre(db.transaction('ventes').objectStore('ventes').count());
+}
+
+/**
+ * Efface toutes les ventes et tous les mouvements de stock, et remet le compteur de tickets
+ * à zéro. Le catalogue et les réglages sont conservés. Irréversible.
+ */
+export async function effacerVentes() {
+  const db = await ouvrir();
+  const tx = db.transaction(['ventes', 'mouvements', 'config'], 'readwrite');
+  tx.objectStore('ventes').clear();
+  tx.objectStore('mouvements').clear();
+  tx.objectStore('config').put({ cle: 'compteur_ticket', valeur: 0 });
+  await finTransaction(tx);
+}
+
 /** Copie complète de la base, pour la sauvegarde manuelle. */
 export async function exporterTout() {
   const [prods, ventes, mouvements, config] = await Promise.all([

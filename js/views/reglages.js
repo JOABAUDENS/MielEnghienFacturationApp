@@ -7,6 +7,7 @@ import * as db from '../db.js';
 export async function rendre(el) {
   const c = etat.config;
   const persistant = await navigator.storage?.persisted?.().catch(() => false);
+  const nbVentes = await db.nombreVentes();
 
   el.innerHTML = `
     <form id="form-reglages" class="formulaire">
@@ -25,6 +26,10 @@ export async function rendre(el) {
     <h2>Sauvegarde</h2>
     <p class="aide">Les ventes sont stockées sur ce téléphone uniquement tant que la synchronisation Google Sheet (lot 2) n'est pas en place. Exporte régulièrement une sauvegarde.</p>
     <button class="btn-secondaire large" data-action="exporter">Exporter une sauvegarde (JSON)</button>
+
+    <h2>Réinitialiser</h2>
+    <p class="aide">Efface toutes les ventes de ce téléphone (${nbVentes} enregistrée(s)) et remet la numérotation des tickets à zéro. Le catalogue et les réglages sont conservés.</p>
+    <button class="btn-danger" data-action="reinitialiser" ${nbVentes ? '' : 'disabled'}>Effacer toutes les ventes</button>
 
     <p class="aide">
       Version ${VERSION_APP} · stockage ${persistant ? 'protégé' : 'non protégé (installe l\'application sur l\'écran d\'accueil)'}<br>
@@ -52,7 +57,17 @@ export async function rendre(el) {
   };
 
   el.onclick = async (e) => {
-    if (e.target.closest('[data-action]')?.dataset.action !== 'exporter') return;
+    const action = e.target.closest('[data-action]')?.dataset.action;
+    if (action === 'reinitialiser') {
+      const message = `Effacer définitivement ${nbVentes} vente(s) de ce téléphone ?\n\nCette action est irréversible. Exporte d'abord une sauvegarde si tu veux en garder une trace.`;
+      if (!confirm(message)) return;
+      await db.effacerVentes();
+      etat.config.compteur_ticket = 0;
+      toast('Ventes effacées');
+      rafraichir();
+      return;
+    }
+    if (action !== 'exporter') return;
     const donnees = await db.exporterTout();
     const url = URL.createObjectURL(new Blob([JSON.stringify(donnees, null, 2)], { type: 'application/json' }));
     const lien = Object.assign(document.createElement('a'), { href: url, download: `miel-enghien-${new Date().toISOString().slice(0, 10)}.json` });
