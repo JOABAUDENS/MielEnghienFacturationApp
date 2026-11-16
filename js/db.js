@@ -1,8 +1,9 @@
 // Stockage local IndexedDB : source de vérité de l'appareil.
-// Magasins : produits, ventes, mouvements (journal de stock, ajout seul), config (clé/valeur).
+// Magasins : produits, ventes, mouvements (journal de stock, ajout seul), config (clé/valeur),
+// outbox (file d'attente des écritures à envoyer au Google Sheet).
 
 const NOM_BASE = 'miel-enghien';
-const VERSION = 1;
+const VERSION = 2;
 
 /** Valeurs par défaut de la configuration. Aucun IBAN ici : il se saisit dans Réglages. */
 export const CONFIG_DEFAUT = {
@@ -16,6 +17,12 @@ export const CONFIG_DEFAUT = {
   canal: 'marche',
   lieu: '',
   catalogue_initialise: false,
+  // Synchronisation (propre à chaque appareil)
+  sync_url: '',
+  sync_secret: '',
+  sync_cursor: '',
+  sync_derniere: '',
+  sync_initialisee: false,
 };
 
 /** Catalogue de départ, repris de l'ancienne page HTML (modifiable ensuite dans l'appli). */
@@ -29,20 +36,40 @@ const PRODUITS_INITIAUX = [
   { categorie: 'hydromel', nom_fr: 'Hydromel cerise', lot: '', prix_cents: 1500 },
 ];
 
+/** Nom de l'onglet du Sheet -> magasin local. */
+const MAGASIN = { Produits: 'produits', Ventes: 'ventes', MouvementsStock: 'mouvements' };
+
 let basePromise;
+let idAppareil = '';
 
 function ouvrir() {
   basePromise ??= new Promise((resolve, reject) => {
     const req = indexedDB.open(NOM_BASE, VERSION);
-    req.onupgradeneeded = () => {
+    req.onupgradeneeded = (e) => {
       const db = req.result;
-      db.createObjectStore('produits', { keyPath: 'id' });
-      db.createObjectStore('ventes', { keyPath: 'id' }).createIndex('date_heure', 'date_heure');
-      db.createObjectStore('mouvements', { keyPath: 'id' }).createIndex('produit_id', 'produit_id');
-      db.createObjectStore('config', { keyPath: 'cle' });
+      if (e.oldVersion < 1) {
+        db.createObjectStore('produits', { keyPath: 'id' });
+        db.createObjectStore('ventes', { keyPath: 'id' }).createIndex('date_heure', 'date_heure');
+        db.createObjectStore('mouvements', { keyPath: 'id' }).createIndex('produit_id', 'produit_id');
+        db.createObjectStore('config', { keyPath: 'cle' });
+      }
+      if (e.oldVersion < 2) {
+        const outbox = db.createObjectStore('outbox', { keyPath: 'cle' });
+        // Tout ce qui existait avant la synchro (lot 1) est mis en file d'attente.
+        for (const [table, magasin] of Object.entries(MAGASIN)) {
+          req.transaction.objectStore(magasin).getAllKeys().onsuccess = (ev) => {
+            for (const id of ev.target.result) outbox.put(entreeOutbox(table, id));
+          };
+        }
+      }
     };
-    req.onsuccess = () => resolve(req.result);
+    req.onsuccess = () => {
+      // Une version plus récente de l'appli veut mettre la base à niveau : on lui laisse la place.
+      req.result.onversionchange = () => { req.result.close(); location.reload(); };
+      resolve(req.result);
+    };
     req.onerror = () => reject(req.error);
+    req.onblocked = () => reject(new Error("l'application est ouverte dans un autre onglet avec une ancienne version : ferme-le puis recharge"));
   });
   return basePromise;
 }
@@ -61,6 +88,11 @@ const finTransaction = (tx) =>
   });
 
 export const maintenant = () => new Date().toISOString();
+
+/** `n` change à chaque écriture : un envoi en cours n'acquitte pas une modification plus récente. */
+function entreeOutbox(table, id) {
+  return { cle: `${table}:${id}`, table, id, n: `${Date.now()}-${Math.random()}` };
+}
 
 export async function tout(magasin) {
   const db = await ouvrir();
@@ -86,27 +118,23 @@ export async function initialiser() {
   let config = await lireConfig();
   const ajout = {};
   if (!config.device_id) ajout.device_id = crypto.randomUUID();
+  idAppareil = config.device_id || ajout.device_id;
   if (!config.catalogue_initialise) {
-    const db = await ouvrir();
-    const tx = db.transaction('produits', 'readwrite');
-    PRODUITS_INITIAUX.forEach((p, i) => {
-      tx.objectStore('produits').put({
-        id: crypto.randomUUID(),
-        nom_nl: '',
-        format: '',
-        prix_magasin_cents: null,
-        consigne: p.categorie === 'miel',
-        date_recolte: '',
-        actif: true,
-        archive: false,
-        ordre: i + 1,
-        seuil_alerte: null,
-        updated_at: maintenant(),
-        device_id: config.device_id || ajout.device_id,
-        ...p,
-      });
-    });
-    await finTransaction(tx);
+    await ecrireProduits(PRODUITS_INITIAUX.map((p, i) => ({
+      id: crypto.randomUUID(),
+      nom_nl: '',
+      format: '',
+      prix_magasin_cents: null,
+      consigne: p.categorie === 'miel',
+      date_recolte: '',
+      actif: true,
+      archive: false,
+      ordre: i + 1,
+      seuil_alerte: null,
+      // Produit de départ jamais modifié : remplacé par le catalogue du Sheet s'il en existe un.
+      initial: true,
+      ...p,
+    })), { initial: true });
     ajout.catalogue_initialise = true;
   }
   if (Object.keys(ajout).length) {
@@ -122,29 +150,32 @@ export async function produits() {
   return (await tout('produits')).sort((a, b) => a.ordre - b.ordre);
 }
 
-export async function enregistrerProduit(produit) {
+async function ecrireProduits(liste, { initial = false } = {}) {
   const db = await ouvrir();
-  const tx = db.transaction('produits', 'readwrite');
-  tx.objectStore('produits').put({ ...produit, updated_at: maintenant() });
+  const tx = db.transaction(['produits', 'outbox'], 'readwrite');
+  for (const p of liste) {
+    tx.objectStore('produits').put({ ...p, initial, updated_at: maintenant(), device_id: idAppareil });
+    tx.objectStore('outbox').put(entreeOutbox('Produits', p.id));
+  }
   await finTransaction(tx);
 }
 
-export async function enregistrerProduits(liste) {
-  const db = await ouvrir();
-  const tx = db.transaction('produits', 'readwrite');
-  for (const p of liste) tx.objectStore('produits').put({ ...p, updated_at: maintenant() });
-  await finTransaction(tx);
-}
+export const enregistrerProduit = (produit) => ecrireProduits([produit]);
+export const enregistrerProduits = (liste) => ecrireProduits(liste);
 
 /**
- * Valide une vente : la vente, ses mouvements de stock et le compteur de tickets sont
- * écrits dans UNE transaction — tout est enregistré, ou rien.
+ * Valide une vente : la vente, ses mouvements de stock, le compteur de tickets et la file
+ * d'attente de synchro sont écrits dans UNE transaction — tout est enregistré, ou rien.
  */
 export async function enregistrerVente(vente, mouvements, compteurTicket) {
   const db = await ouvrir();
-  const tx = db.transaction(['ventes', 'mouvements', 'config'], 'readwrite');
+  const tx = db.transaction(['ventes', 'mouvements', 'config', 'outbox'], 'readwrite');
   tx.objectStore('ventes').put(vente);
-  for (const m of mouvements) tx.objectStore('mouvements').put(m);
+  tx.objectStore('outbox').put(entreeOutbox('Ventes', vente.id));
+  for (const m of mouvements) {
+    tx.objectStore('mouvements').put(m);
+    tx.objectStore('outbox').put(entreeOutbox('MouvementsStock', m.id));
+  }
   tx.objectStore('config').put({ cle: 'compteur_ticket', valeur: compteurTicket });
   await finTransaction(tx);
 }
@@ -164,22 +195,166 @@ export async function nombreVentes() {
 }
 
 /**
- * Efface toutes les ventes et tous les mouvements de stock, et remet le compteur de tickets
- * à zéro. Le catalogue et les réglages sont conservés. Irréversible.
+ * Efface toutes les ventes et tous les mouvements de stock de CET appareil (y compris ceux
+ * qui attendaient d'être envoyés), et remet le compteur de tickets à zéro. Le catalogue, les
+ * réglages et le Google Sheet ne sont pas touchés. Irréversible.
  */
 export async function effacerVentes() {
   const db = await ouvrir();
-  const tx = db.transaction(['ventes', 'mouvements', 'config'], 'readwrite');
+  const tx = db.transaction(['ventes', 'mouvements', 'config', 'outbox'], 'readwrite');
   tx.objectStore('ventes').clear();
   tx.objectStore('mouvements').clear();
   tx.objectStore('config').put({ cle: 'compteur_ticket', valeur: 0 });
+  const outbox = tx.objectStore('outbox');
+  outbox.getAll().onsuccess = (e) => {
+    for (const entree of e.target.result) if (entree.table !== 'Produits') outbox.delete(entree.cle);
+  };
   await finTransaction(tx);
 }
 
-/** Copie complète de la base, pour la sauvegarde manuelle. */
+/** Copie complète de la base, pour la sauvegarde manuelle (sans le secret de synchro). */
 export async function exporterTout() {
   const [prods, ventes, mouvements, config] = await Promise.all([
     tout('produits'), tout('ventes'), tout('mouvements'), tout('config'),
   ]);
-  return { format: 'miel-enghien-sauvegarde', version: VERSION, exporte_le: maintenant(), produits: prods, ventes, mouvements, config };
+  return {
+    format: 'miel-enghien-sauvegarde',
+    version: VERSION,
+    exporte_le: maintenant(),
+    produits: prods,
+    ventes,
+    mouvements,
+    config: config.filter((c) => c.cle !== 'sync_secret'),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Synchronisation
+// ---------------------------------------------------------------------------
+
+export async function compterOutbox() {
+  const db = await ouvrir();
+  return attendre(db.transaction('outbox').objectStore('outbox').count());
+}
+
+/** Les `limite` premières écritures en attente. */
+export async function lireOutbox(limite) {
+  const db = await ouvrir();
+  return attendre(db.transaction('outbox').objectStore('outbox').getAll(null, limite));
+}
+
+/**
+ * Transforme des entrées de la file d'attente en lignes à envoyer au Sheet.
+ * Une vente donne une ligne « Ventes » et une ligne « LignesVente » par article.
+ * @returns {Promise<Array<{table: string, row: object}>>}
+ */
+export async function materialiser(entrees) {
+  const db = await ouvrir();
+  const tx = db.transaction(['produits', 'ventes', 'mouvements']);
+  const ops = [];
+  for (const e of entrees) {
+    const row = await attendre(tx.objectStore(MAGASIN[e.table]).get(e.id));
+    if (!row) continue; // effacé entre-temps : rien à envoyer
+    if (e.table === 'Ventes') {
+      const { lignes = [], ...entete } = row;
+      ops.push({ table: 'Ventes', row: entete });
+      for (const l of lignes) ops.push({ table: 'LignesVente', row: { ...l, vente_id: row.id, device_id: row.device_id } });
+    } else if (e.table === 'Produits') {
+      const { initial, ...produit } = row;
+      ops.push({ table: 'Produits', row: produit });
+    } else {
+      ops.push({ table: e.table, row });
+    }
+  }
+  return ops;
+}
+
+/** Retire de la file les entrées envoyées, sauf celles modifiées de nouveau pendant l'envoi. */
+export async function acquitter(entrees) {
+  const db = await ouvrir();
+  const tx = db.transaction('outbox', 'readwrite');
+  const outbox = tx.objectStore('outbox');
+  for (const e of entrees) {
+    const actuelle = await attendre(outbox.get(e.cle));
+    if (actuelle && actuelle.n === e.n) outbox.delete(e.cle);
+  }
+  await finTransaction(tx);
+}
+
+/** Supprime les produits de départ jamais modifiés (le Sheet fournit déjà un catalogue). */
+export async function supprimerProduitsInitiaux() {
+  const db = await ouvrir();
+  const tx = db.transaction(['produits', 'outbox'], 'readwrite');
+  const magasin = tx.objectStore('produits');
+  for (const p of await attendre(magasin.getAll())) {
+    if (p.initial) {
+      magasin.delete(p.id);
+      tx.objectStore('outbox').delete(`Produits:${p.id}`);
+    }
+  }
+  await finTransaction(tx);
+}
+
+/** Une cellule vide du Sheet vaut '' : on la ramène à null pour les champs numériques. */
+const nombreOuNull = (v) => (v === '' || v === null || v === undefined ? null : Number(v));
+
+/**
+ * Fusionne les lignes reçues du Sheet dans la base locale, sans les remettre en file d'attente.
+ * Produits et ventes : la version au `updated_at` le plus récent gagne.
+ * Mouvements de stock : ajout seul.
+ * @returns {Promise<{produits: number, ventes: number, mouvements: number}>} lignes appliquées
+ */
+export async function fusionner(changements) {
+  const db = await ouvrir();
+  const tx = db.transaction(['produits', 'ventes', 'mouvements'], 'readwrite');
+  const bilan = { produits: 0, ventes: 0, mouvements: 0 };
+  const plusRecent = (distant, local) => !local || String(distant.updated_at) > String(local.updated_at);
+
+  for (const { synced_at, ...p } of changements.Produits || []) {
+    const magasin = tx.objectStore('produits');
+    if (!plusRecent(p, await attendre(magasin.get(p.id)))) continue;
+    magasin.put({
+      ...p,
+      prix_cents: Number(p.prix_cents) || 0,
+      prix_magasin_cents: nombreOuNull(p.prix_magasin_cents),
+      seuil_alerte: nombreOuNull(p.seuil_alerte),
+      ordre: Number(p.ordre) || 0,
+      consigne: p.consigne === true,
+      actif: p.actif === true,
+      archive: p.archive === true,
+      initial: false,
+    });
+    bilan.produits += 1;
+  }
+
+  const lignesParVente = {};
+  for (const { synced_at, device_id, ...l } of changements.LignesVente || []) {
+    (lignesParVente[l.vente_id] ??= []).push(l);
+  }
+  for (const { synced_at, ...v } of changements.Ventes || []) {
+    const magasin = tx.objectStore('ventes');
+    const locale = await attendre(magasin.get(v.id));
+    if (!plusRecent(v, locale)) continue;
+    magasin.put({ ...v, client_id: v.client_id || null, lignes: lignesParVente[v.id] || locale?.lignes || [] });
+    bilan.ventes += 1;
+  }
+
+  for (const { synced_at, ...m } of changements.MouvementsStock || []) {
+    const magasin = tx.objectStore('mouvements');
+    if (await attendre(magasin.get(m.id))) continue;
+    magasin.put(m);
+    bilan.mouvements += 1;
+  }
+
+  await finTransaction(tx);
+  return bilan;
+}
+
+/** Plus grand numéro de séquence parmi les tickets commençant par ce préfixe (ex. "J26-"). */
+export async function plusGrandNumero(debut) {
+  let max = 0;
+  for (const v of await tout('ventes')) {
+    if (String(v.numero).startsWith(debut)) max = Math.max(max, parseInt(String(v.numero).slice(debut.length), 10) || 0);
+  }
+  return max;
 }

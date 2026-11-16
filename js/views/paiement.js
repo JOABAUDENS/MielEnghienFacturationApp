@@ -5,6 +5,7 @@ import { buildEpcPayload, ibanValide, formaterIban, nettoyer } from '../epc.js';
 import { mouvementsDeVente } from '../panier.js';
 import { formatEuro, toCents, centsToInput } from '../money.js';
 import * as db from '../db.js';
+import * as sync from '../sync.js';
 
 let verrouEcran = null;
 
@@ -81,6 +82,7 @@ async function valider(mode) {
     return;
   }
   etat.config.compteur_ticket = compteur;
+  sync.apresEcriture(); // envoi en arrière-plan : on n'attend jamais le réseau
   etat.panier = panierVide();
   etat.paiement = null;
   relacherEcran();

@@ -34,7 +34,15 @@ button { cursor: pointer; touch-action: manipulation; }
   background: var(--miel); color: #fff;
   padding: calc(10px + env(safe-area-inset-top)) 16px 10px;
 }
+.entete { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .entete h1 { margin: 0; font-size: 1.15rem; }
+.pastille {
+  min-width: 44px; min-height: 32px; padding: 0 10px; border: 0; border-radius: 16px;
+  background: rgba(255, 255, 255, 0.25); color: #fff; font-weight: 700; font-size: 0.95rem;
+}
+.pastille[hidden] { display: none; }
+.pastille.erreur { background: #fff; color: var(--rouge); }
+.sync-etat { background: var(--carte); border: 1px solid var(--bord); border-radius: 10px; padding: 10px 12px; }
 
 .maj {
   background: var(--texte); color: #fff;

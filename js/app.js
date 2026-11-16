@@ -1,6 +1,7 @@
 // Démarrage de l'application, navigation par onglets, service worker.
 import { etat, definirRendu, rafraichir, toast } from './etat.js';
 import * as db from './db.js';
+import * as sync from './sync.js';
 import * as vente from './views/vente.js';
 import * as paiement from './views/paiement.js';
 import * as ventes from './views/ventes.js';
@@ -29,6 +30,24 @@ nav.onclick = (e) => {
   etat.onglet = bouton.dataset.onglet;
   etat.edition = null;
   window.scrollTo(0, 0);
+  rafraichir();
+};
+
+// Pastille de synchro dans l'en-tête : un coup d'œil suffit, un appui ouvre les Réglages.
+const pastille = document.getElementById('pastille');
+function afficherStatutSync() {
+  const { icone, texte } = sync.decrire();
+  pastille.hidden = !icone;
+  pastille.textContent = icone;
+  pastille.title = texte;
+  pastille.classList.toggle('erreur', Boolean(sync.statut.erreur) && !sync.statut.enCours);
+  const detail = document.getElementById('sync-etat');
+  if (detail) detail.textContent = texte;
+}
+pastille.onclick = () => {
+  if (etat.paiement) return;
+  etat.onglet = 'reglages';
+  etat.edition = null;
   rafraichir();
 };
 
@@ -68,6 +87,8 @@ async function demarrer() {
     return;
   }
   await rendre();
+  sync.surChangement(afficherStatutSync);
+  sync.demarrer();
   installerServiceWorker();
 }
 

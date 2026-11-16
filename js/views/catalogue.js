@@ -2,6 +2,7 @@
 import { etat, esc, rafraichir, toast, CATEGORIES } from '../etat.js';
 import { formatEuro, toCents, centsToInput } from '../money.js';
 import * as db from '../db.js';
+import * as sync from '../sync.js';
 
 function nouveauProduit() {
   return {
@@ -63,6 +64,7 @@ function liste(el) {
     const p = etat.produits.find((x) => x.id === e.target.dataset.id);
     p.actif = e.target.checked;
     await db.enregistrerProduit(p);
+    sync.apresEcriture();
   };
 
   el.onclick = async (e) => {
@@ -76,10 +78,12 @@ function liste(el) {
       const cibles = etat.produits.filter((p) => !p.archive);
       cibles.forEach((p) => { p.actif = actif; });
       await db.enregistrerProduits(cibles);
+    sync.apresEcriture();
     } else if (action === 'desarchiver') {
       const p = etat.produits.find((x) => x.id === id);
       p.archive = false;
       await db.enregistrerProduit(p);
+    sync.apresEcriture();
     }
     rafraichir();
   };
@@ -115,6 +119,7 @@ function formulaire(el) {
     if (action === 'archiver') {
       const { nouveau, ...produit } = p;
       await db.enregistrerProduit({ ...produit, archive: true, actif: false });
+    sync.apresEcriture();
       etat.produits = await db.produits();
       etat.edition = null;
       toast('Produit archivé');
@@ -139,6 +144,7 @@ function formulaire(el) {
     });
     const doublon = produit.lot && etat.produits.some((x) => x.id !== produit.id && !x.archive && x.lot === produit.lot && x.nom_fr === produit.nom_fr);
     await db.enregistrerProduit(produit);
+    sync.apresEcriture();
     etat.produits = await db.produits();
     etat.edition = null;
     toast(doublon ? 'Enregistré — attention, un produit identique existe déjà' : 'Produit enregistré', doublon ? 'erreur' : 'ok');
