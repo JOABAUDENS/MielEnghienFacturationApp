@@ -1,5 +1,5 @@
 // Écran de vente : produits du jour, panier, total, bouton Encaisser.
-import { etat, esc, rafraichir, toast, prochainNumero, panierVide, CATEGORIES, CANAUX } from '../etat.js';
+import { etat, esc, rafraichir, toast, prochainNumero, panierVide, CATEGORIES, CANAUX, champLieu, choisirLieu } from '../etat.js';
 import { rechercher, trouverDoublons, emailValide } from '../clients.js';
 import { rechargerClients } from '../chargement.js';
 import * as sync from '../sync.js';
@@ -178,7 +178,7 @@ export function rendre(el) {
       <select id="canal" aria-label="Canal de vente">
         ${Object.entries(CANAUX).map(([cle, nom]) => `<option value="${cle}" ${etat.config.canal === cle ? 'selected' : ''}>${nom}</option>`).join('')}
       </select>
-      <input id="lieu" type="text" placeholder="Lieu (ex. Marché d'Enghien)" value="${esc(etat.config.lieu)}" aria-label="Lieu">
+      ${champLieu(etat.config.lieu, 'id="lieu"')}
     </div>
 
     ${groupes || `<p class="vide">Aucun produit actif. Active des produits dans l'onglet Stock.</p>`}
@@ -271,7 +271,9 @@ export function rendre(el) {
   el.onchange = async (e) => {
     if (e.target.id === 'ticket') { etat.panier.ticket = e.target.checked; return; }
     if (e.target.id === 'canal' || e.target.id === 'lieu') {
-      const maj = { [e.target.id]: e.target.value.trim() };
+      const valeur = e.target.id === 'lieu' ? choisirLieu(e.target, etat.config.lieu) : e.target.value;
+      if (valeur === null) return;
+      const maj = { [e.target.id]: valeur };
       Object.assign(etat.config, maj);
       await db.ecrireConfig(maj);
       if (e.target.id === 'canal') rafraichir(); // les prix dépendent du canal (magasin)

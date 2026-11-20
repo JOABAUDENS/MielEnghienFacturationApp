@@ -21,6 +21,10 @@ export async function rendre(el) {
       <h2>Vente</h2>
       <label>Montant d'une consigne (€) <input name="consigne" type="text" inputmode="decimal" value="${centsToInput(c.consigne_cents)}"></label>
       <label>Préfixe des tickets de cet appareil <input name="prefixe" type="text" maxlength="2" value="${esc(c.prefixe)}" autocapitalize="characters"></label>
+      <label>Endroits habituels (un par ligne)
+        <textarea name="lieux" rows="4" placeholder="Marché d'Enghien&#10;Marché de Marcq&#10;Magasin Le Panier">${esc(c.lieux)}</textarea>
+      </label>
+      <p class="aide">Ils sont proposés dans une liste à l'écran de vente (« Autre… » reste possible). Laisse vide pour une saisie libre.</p>
 
       <h2>Ticket de caisse</h2>
       <label>Vendeur (dénomination, adresse, n° de TVA)
@@ -73,6 +77,7 @@ export async function rendre(el) {
       bic: f.get('bic').replace(/\s+/g, '').toUpperCase(),
       consigne_cents: consigne,
       prefixe: f.get('prefixe').trim().toUpperCase().replace(/[^A-Z0-9]/g, '') || 'J',
+      lieux: [...new Set(f.get('lieux').split('\n').map((l) => l.trim()).filter(Boolean))].join('\n'),
       ticket_vendeur: f.get('ticket_vendeur').trim(),
       ticket_pied: f.get('ticket_pied').trim(),
       sync_url: url,

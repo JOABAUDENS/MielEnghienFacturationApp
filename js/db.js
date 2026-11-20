@@ -18,6 +18,7 @@ export const CONFIG_DEFAUT = {
   device_id: '',
   canal: 'marche',
   lieu: '',
+  lieux: '', // endroits prédéfinis, un par ligne
   catalogue_initialise: false,
   // Ticket de caisse
   ticket_vendeur: '',

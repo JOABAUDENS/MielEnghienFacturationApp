@@ -1,6 +1,6 @@
 // Onglet Historique : ventes par période, actions sur une vente (annuler, changer le mode de
 // paiement, associer un client, ticket), et journal Smart (encaissements à ressaisir).
-import { etat, esc, rafraichir, toast, MODES, CANAUX } from '../etat.js';
+import { etat, esc, rafraichir, toast, MODES, CANAUX, champLieu, choisirLieu } from '../etat.js';
 import { construireTicket } from '../ticket.js';
 import { mouvementsAnnulation } from '../panier.js';
 import { visibles, normaliser } from '../clients.js';
@@ -82,7 +82,7 @@ function actionsVente(v) {
           <select data-role="canal" aria-label="Endroit">
             ${Object.entries(CANAUX).filter(([cle]) => cle !== 'magasin').map(([cle, nom]) => `<option value="${cle}" ${cle === v.canal ? 'selected' : ''}>${nom}</option>`).join('')}
           </select>
-          <input type="text" data-role="lieu" value="${esc(v.lieu || '')}" placeholder="Lieu (facultatif)" aria-label="Lieu">
+          ${champLieu(v.lieu || '', 'data-role="lieu"')}
         </div>
         <button class="btn-secondaire large" data-action="endroit" data-id="${v.id}">Corriger l'endroit</button>
       </div>` : ''}
@@ -148,7 +148,13 @@ function vueVentes(el, toutes) {
   el.onchange = (e) => {
     if (e.target.id === 'periode') periode = e.target.value;
     else if (e.target.id === 'canal') canal = e.target.value;
-    else return;
+    else {
+      if (e.target.dataset.role === 'lieu' && e.target.tagName === 'SELECT') {
+        const vente = toutes.find((x) => x.id === e.target.closest('.endroit')?.querySelector('[data-action="endroit"]')?.dataset.id);
+        choisirLieu(e.target, vente?.lieu);
+      }
+      return;
+    }
     rafraichir();
   };
 
