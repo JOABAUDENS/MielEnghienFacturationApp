@@ -76,6 +76,16 @@ function actionsVente(v) {
     ${v.mode_paiement === 'qr' || v.mode_paiement === 'liquide' ? `
       <button class="btn-secondaire large" data-action="mode" data-id="${v.id}">Corriger : payé ${v.mode_paiement === 'qr' ? 'en liquide' : 'par virement'}</button>` : ''}
     ${v.statut === 'en_attente' ? `<button class="btn-secondaire large" data-action="payee" data-id="${v.id}">Marquer comme facturée dans Smart</button>` : ''}
+    ${v.canal !== 'magasin' ? `
+      <div class="endroit">
+        <div class="ligne-saisie">
+          <select data-role="canal" aria-label="Endroit">
+            ${Object.entries(CANAUX).filter(([cle]) => cle !== 'magasin').map(([cle, nom]) => `<option value="${cle}" ${cle === v.canal ? 'selected' : ''}>${nom}</option>`).join('')}
+          </select>
+          <input type="text" data-role="lieu" value="${esc(v.lieu || '')}" placeholder="Lieu (facultatif)" aria-label="Lieu">
+        </div>
+        <button class="btn-secondaire large" data-action="endroit" data-id="${v.id}">Corriger l'endroit</button>
+      </div>` : ''}
     <div class="ligne-saisie">
       <select data-role="client" aria-label="Client">
         <option value="">— aucun client —</option>
@@ -166,6 +176,14 @@ function vueVentes(el, toutes) {
     } else if (action === 'mode') {
       await db.modifierVentes([{ ...v, mode_paiement: v.mode_paiement === 'qr' ? 'liquide' : 'qr' }]);
       await apresEcriture('Mode de paiement corrigé');
+    } else if (action === 'endroit') {
+      const bloc = bouton.closest('.endroit');
+      const nouveauCanal = bloc.querySelector('[data-role="canal"]').value;
+      const nouveauLieu = bloc.querySelector('[data-role="lieu"]').value.trim();
+      if (nouveauCanal === v.canal && nouveauLieu === (v.lieu || '')) { toast('Rien à corriger'); return; }
+      if (v.smart_saisi_le && !confirm(`Cette vente est déjà saisie dans Smart (${v.smart_saisi_le}).\n\nPense à corriger aussi chez Smart. Continuer ?`)) return;
+      await db.modifierVentes([{ ...v, canal: nouveauCanal, lieu: nouveauLieu }]);
+      await apresEcriture('Endroit corrigé');
     } else if (action === 'payee') {
       await db.modifierVentes([{ ...v, statut: 'payee', smart_saisi_le: aujourdhui() }]);
       await apresEcriture('Livraison marquée comme facturée');
